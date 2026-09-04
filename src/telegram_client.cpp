@@ -7,8 +7,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <utility>
+
+#include <sys/stat.h>
 
 #include "anonx/logger.hpp"
 
@@ -564,6 +568,68 @@ std::int64_t TelegramClient::sendMessage(std::int64_t chatId, const std::string&
     return 0;
 }
 
+std::int64_t TelegramClient::sendPhoto(std::int64_t chatId, const std::string& photo,
+                                       const std::string& captionHtml,
+                                       const InlineKeyboard& kb) {
+    if (photo.empty()) {
+        return sendMessage(chatId, captionHtml, kb);
+    }
+
+    std::string localPath;
+    if (photo.rfind("http://", 0) == 0 || photo.rfind("https://", 0) == 0) {
+        std::size_t h = std::hash<std::string>{}(photo);
+        localPath = "cache/img_" + std::to_string(h) + ".jpg";
+        struct stat st;
+        if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
+            std::string cmd = "curl -sSL -f --max-time 10 \"" + photo + "\" -o \"" + localPath + "\" 2>/dev/null";
+            int ret = std::system(cmd.c_str());
+            (void)ret;
+        }
+        if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
+            localPath.clear();
+        }
+    } else {
+        struct stat st;
+        if (::stat(photo.c_str(), &st) == 0 && st.st_size > 0) {
+            localPath = photo;
+        }
+    }
+
+    json content;
+    content["@type"] = "inputMessagePhoto";
+    if (!localPath.empty()) {
+        content["photo"] = json{
+            {"@type", "inputFileLocal"},
+            {"path", localPath}
+        };
+    } else {
+        content["photo"] = json{
+            {"@type", "inputFileRemote"},
+            {"id", photo}
+        };
+    }
+
+    if (!captionHtml.empty()) {
+        content["caption"] = parseHtml(captionHtml);
+    }
+
+    json req;
+    req["@type"] = "sendMessage";
+    req["chat_id"] = chatId;
+    req["input_message_content"] = content;
+    const json markup = toReplyMarkup(kb);
+    if (!markup.is_null()) req["reply_markup"] = markup;
+
+    const std::string resp = client_.invoke(req.dump());
+    json j = json::parse(resp, nullptr, false);
+    if (!j.is_discarded() && j.is_object() && strField(j, "@type") == "message") {
+        return intField(j, "id");
+    }
+
+    // Fallback to text sendMessage if photo failed
+    return sendMessage(chatId, captionHtml, kb);
+}
+
 bool TelegramClient::editMessageText(std::int64_t chatId, std::int64_t messageId,
                                      const std::string& html, const InlineKeyboard& kb) {
     json req;
@@ -573,7 +639,17 @@ bool TelegramClient::editMessageText(std::int64_t chatId, std::int64_t messageId
     req["input_message_content"] = inputMessageText(html);
     const json markup = toReplyMarkup(kb);
     if (!markup.is_null()) req["reply_markup"] = markup;
-    return isOk(client_.invoke(req.dump()));
+    const std::string resp = client_.invoke(req.dump());
+    if (isOk(resp)) return true;
+
+    // Fallback: message might be a photo/media with caption
+    json reqCap;
+    reqCap["@type"] = "editMessageCaption";
+    reqCap["chat_id"] = chatId;
+    reqCap["message_id"] = messageId;
+    reqCap["caption"] = parseHtml(html);
+    if (!markup.is_null()) reqCap["reply_markup"] = markup;
+    return isOk(client_.invoke(reqCap.dump()));
 }
 
 bool TelegramClient::editMessageReplyMarkup(std::int64_t chatId, std::int64_t messageId,

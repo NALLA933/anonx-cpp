@@ -187,7 +187,9 @@ Config Config::load(const std::string& envFile) {
 
     c.default_thumb = env.str("DEFAULT_THUMB", c.default_thumb);
     c.ping_img      = env.str("PING_IMG", c.ping_img);
+    c.ping_img      = env.str("PING_IMG_URL", c.ping_img);
     c.start_img     = env.str("START_IMG", c.start_img);
+    c.start_img     = env.str("START_IMG_URL", c.start_img);
 
     return c;
 }

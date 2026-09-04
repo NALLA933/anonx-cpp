@@ -108,6 +108,11 @@ public:
     std::int64_t sendMessage(std::int64_t chatId, const std::string& html,
                              const InlineKeyboard& kb = {});
 
+    // Send a photo with an optional HTML caption and inline keyboard.
+    std::int64_t sendPhoto(std::int64_t chatId, const std::string& photo,
+                           const std::string& captionHtml = "",
+                           const InlineKeyboard& kb = {});
+
     // Replace a message's text (and its keyboard). Mirrors message.edit_text.
     bool editMessageText(std::int64_t chatId, std::int64_t messageId,
                          const std::string& html, const InlineKeyboard& kb = {});

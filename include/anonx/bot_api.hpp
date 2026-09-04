@@ -40,6 +40,14 @@ public:
     virtual std::int64_t sendMessage(std::int64_t chatId, const std::string& html,
                                      const InlineKeyboard& kb = {}) = 0;
 
+    // Send a photo with an optional HTML caption and inline keyboard.
+    virtual std::int64_t sendPhoto(std::int64_t chatId, const std::string& photo,
+                                   const std::string& captionHtml = "",
+                                   const InlineKeyboard& kb = {}) {
+        (void)photo;
+        return sendMessage(chatId, captionHtml, kb);
+    }
+
     // Edit a message's text and keyboard. Mirrors message.edit_text. An empty
     // keyboard clears the markup. Returns true on success.
     virtual bool editMessageText(std::int64_t chatId, std::int64_t messageId,

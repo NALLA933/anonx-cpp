@@ -33,6 +33,12 @@ std::int64_t TelegramBotApi::sendMessage(std::int64_t chatId, const std::string&
     return bot_.sendMessage(chatId, html, kb);
 }
 
+std::int64_t TelegramBotApi::sendPhoto(std::int64_t chatId, const std::string& photo,
+                                       const std::string& captionHtml,
+                                       const InlineKeyboard& kb) {
+    return bot_.sendPhoto(chatId, photo, captionHtml, kb);
+}
+
 bool TelegramBotApi::editMessageText(std::int64_t chatId, std::int64_t messageId,
                                      const std::string& html, const InlineKeyboard& kb) {
     return bot_.editMessageText(chatId, messageId, html, kb);

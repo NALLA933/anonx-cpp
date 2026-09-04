@@ -571,7 +571,13 @@ InlineKeyboard AdminPlugins::settingsKeyboard(const LangView& L,
 
 void AdminPlugins::onStart(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
-    api_.sendMessage(ev.chatId, startCard(L, ev), startKeyboard(L, ev.isPrivate));
+    const std::string text = startCard(L, ev);
+    const InlineKeyboard kb = startKeyboard(L, ev.isPrivate);
+    if (!config_.start_img.empty()) {
+        api_.sendPhoto(ev.chatId, config_.start_img, text, kb);
+    } else {
+        api_.sendMessage(ev.chatId, text, kb);
+    }
 }
 
 void AdminPlugins::onHelp(const CommandEvent& ev) {
