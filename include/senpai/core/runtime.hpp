@@ -7,17 +7,20 @@
 #include <string>
 #include <vector>
 
-#include "senpai/plugins/admin_plugins.hpp"
-#include "senpai/database/cache_manager.hpp"
 #include "senpai/core/config.hpp"
+#include "senpai/database/cache_manager.hpp"
 #include "senpai/database/database.hpp"
-#include "senpai/telegram/dispatcher.hpp"
+#include "senpai/plugins/admin_plugins.hpp"
 #include "senpai/plugins/lang.hpp"
 #include "senpai/plugins/plugins.hpp"
-#include "senpai/voice/queue.hpp"
+#include "senpai/telegram/dispatcher.hpp"
+#include "senpai/telegram/telegram_client.hpp"
+#include "senpai/telegram/userbot.hpp"
 #include "senpai/utils/sysinfo.hpp"
-#include "senpai/voice/ntgcalls_transport.hpp"
 #include "senpai/utils/youtube.hpp"
+#include "senpai/voice/call_manager.hpp"
+#include "senpai/voice/ntgcalls_transport.hpp"
+#include "senpai/voice/queue.hpp"
 
 namespace senpai {
 

@@ -13,6 +13,30 @@ namespace {
 using nlohmann::json;
 
 std::string strField(const json& j, const char* key) {
+    if (j.is_object() && j.contains(key) && j[key].is_string()) {
+        return j[key].get<std::string>();
+    }
+    return std::string();
+}
+
+std::int64_t intField(const json& j, const char* key) {
+    if (j.is_object() && j.contains(key)) {
+        const auto& val = j[key];
+        if (val.is_number()) {
+            return val.get<std::int64_t>();
+        }
+        if (val.is_string()) {
+            try {
+                return std::stoll(val.get<std::string>());
+            } catch (...) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
+} // namespace
 
 std::int64_t MessageContext::reply(const std::string& html) const {
     return client ? client->sendMessage(chatId, html) : 0;
@@ -78,7 +102,7 @@ CallbackFilter callbackDataPrefix(std::string prefix) {
         [prefix](const CallbackContext& c) { return c.data.rfind(prefix, 0) == 0; });
 }
 
-}
+} // namespace filters
 
 void Dispatcher::setPrefixes(std::vector<char> prefixes) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -87,7 +111,7 @@ void Dispatcher::setPrefixes(std::vector<char> prefixes) {
 
 void Dispatcher::setBotUsername(std::string username) {
     std::lock_guard<std::mutex> lk(mtx_);
-    botUsername_ = lower(std::move(username));
+    botUsername_ = utils::toLower(std::move(username));
 }
 
 void Dispatcher::attach(TelegramClient& client) {
@@ -95,7 +119,7 @@ void Dispatcher::attach(TelegramClient& client) {
         std::lock_guard<std::mutex> lk(mtx_);
         client_ = &client;
         if (botUsername_.empty() && !client.me().username.empty()) {
-            botUsername_ = lower(client.me().username);
+            botUsername_ = utils::toLower(client.me().username);
         }
     }
     startWorkers();

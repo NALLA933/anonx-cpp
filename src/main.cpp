@@ -122,19 +122,23 @@ int runBot(const std::string& envFile) {
     senpai::LogSink::instance().close();
     return 0;
 }
- 
- int main(int argc, char** argv) {
-     const std::string envFile = (argc > 1) ? argv[1] : ".env";
-     try {
-         std::setvbuf(stdout, nullptr, _IOLBF, 0);
- #if defined(SENPAI_WITH_TDLIB)
-         return runBot(envFile);
- #else
-         (void)envFile;
-         std::cerr << "SenpaiMusic C++ was built without TDLib (-DSENPAI_WITH_TDLIB=ON). Cannot run.\n";
-         return 1;
- #endif
-     } catch (const std::exception& ex) {
+
+#endif
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const std::string envFile = (argc > 1) ? argv[1] : ".env";
+    try {
+        std::setvbuf(stdout, nullptr, _IOLBF, 0);
+#if defined(SENPAI_WITH_TDLIB)
+        return runBot(envFile);
+#else
+        (void)envFile;
+        std::cerr << "SenpaiMusic C++ was built without TDLib (-DSENPAI_WITH_TDLIB=ON). Cannot run.\n";
+        return 1;
+#endif
+    } catch (const std::exception& ex) {
         std::cerr << "fatal: " << ex.what() << "\n";
         return 1;
     }
