@@ -83,7 +83,27 @@ set(ANONX_TG_SOURCES
 # enable with -DANONX_WITH_TDLIB=ON (needs TDLib's CMake package / Td::TdJson).
 option(ANONX_WITH_TDLIB "Build the Telegram layer against a real TDLib (Td::TdJson)" OFF)
 if(ANONX_WITH_TDLIB)
-  find_package(Td REQUIRED)   # provides the imported target Td::TdJson
+  find_package(Td QUIET)
+  if(NOT TARGET Td::TdJson)
+    find_library(TDJSON_LIB NAMES tdjson libtdjson
+      PATHS
+        /usr/local/lib
+        /usr/lib
+        /usr/lib/x86_64-linux-gnu
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    if(TDJSON_LIB)
+      message(STATUS "Found libtdjson: ${TDJSON_LIB}")
+      add_library(Td::TdJson UNKNOWN IMPORTED)
+      set_target_properties(Td::TdJson PROPERTIES
+        IMPORTED_LOCATION "${TDJSON_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
+      )
+    else()
+      message(FATAL_ERROR "ANONX_WITH_TDLIB=ON but neither Td CMake package nor libtdjson.so was found.")
+    endif()
+  endif()
   add_library(anonx_tg ${ANONX_TG_SOURCES})
   target_link_libraries(anonx_tg
     PUBLIC anonx_core Td::TdJson
@@ -189,6 +209,10 @@ if(ANONX_WITH_TDLIB)
   # working (see include/anonx/null_voice_transport.hpp).
   target_compile_definitions(anonx PRIVATE ANONX_WITH_TDLIB)
   target_link_libraries(anonx PRIVATE anonx_tg)
+  set_target_properties(anonx PROPERTIES
+    BUILD_RPATH "$ORIGIN:$ORIGIN/../lib:/usr/local/lib:/usr/lib"
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:/usr/local/lib:/usr/lib"
+  )
   if(ANONX_WITH_NTGCALLS)
     target_link_libraries(anonx PRIVATE anonx_voice_ntgcalls)
     message(STATUS "anonx: full build — TDLib + NTgCalls")

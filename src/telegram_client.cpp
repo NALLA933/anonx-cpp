@@ -335,6 +335,11 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         authState = &j;
     }
 
+    if (type == "error") {
+        log().error(opts_.name + " TDLib error: " + strField(j, "message") +
+                    " (code " + std::to_string(intField(j, "code")) + ")");
+    }
+
     if (!authState) {
         // Not an auth message — hand it to the observer (Dispatcher etc.).
         TdClient::UpdateHandler obs;
@@ -351,13 +356,19 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
     if (st == "authorizationStateWaitTdlibParameters") {
         json p;
         p["@type"] = "setTdlibParameters";
+        p["use_test_dc"] = false;
         p["database_directory"] = opts_.databaseDirectory;
+        p["files_directory"] = "";
+        p["database_encryption_key"] = "";
+        p["use_file_database"] = true;
+        p["use_chat_info_database"] = true;
         p["use_message_database"] = false;   // lightweight: no history on disk
         p["use_secret_chats"] = false;
         p["api_id"] = opts_.apiId;
         p["api_hash"] = opts_.apiHash;
         p["system_language_code"] = opts_.systemLanguageCode;
         p["device_model"] = opts_.deviceModel;
+        p["system_version"] = "Linux";
         p["application_version"] = opts_.applicationVersion;
         client_.send(p.dump());
 
@@ -380,7 +391,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
                 phone = opts_.phoneProvider();
             }
             if (phone.empty()) {
-                std::fprintf(stderr, "Enter phone number for %s (e.g. +1234567890): ", opts_.name.c_str());
+                std::fprintf(stderr, "\nEnter phone number for %s (e.g. +1234567890): ", opts_.name.c_str());
                 std::fflush(stderr);
                 std::getline(std::cin, phone);
             }
@@ -392,6 +403,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
 
             if (!phone.empty()) {
                 opts_.phoneNumber = phone;
+                log().info(opts_.name + ": Requesting Telegram login code for " + phone + "...");
                 json p;
                 p["@type"] = "setAuthenticationPhoneNumber";
                 p["phone_number"] = phone;
@@ -404,11 +416,25 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
 
     } else if (st == "authorizationStateWaitCode") {
         // First-run interactive login for a userbot.
+        if (authState->contains("code_info") && (*authState)["code_info"].is_object()) {
+            const json& ci = (*authState)["code_info"];
+            std::string deliveryType = strField(ci["type"], "@type");
+            if (deliveryType == "authenticationCodeTypeTelegramMessage") {
+                log().info(opts_.name + ": >>> Code sent via official Telegram app message! Please check Telegram. <<<");
+            } else if (deliveryType == "authenticationCodeTypeSms") {
+                log().info(opts_.name + ": >>> Code sent via SMS to " + opts_.phoneNumber + "! <<<");
+            } else if (deliveryType == "authenticationCodeTypeCall") {
+                log().info(opts_.name + ": >>> Telegram will call your phone with the login code! <<<");
+            } else {
+                log().info(opts_.name + ": >>> Telegram code was dispatched. Please check your Telegram app / SMS. <<<");
+            }
+        }
+
         std::string code;
         if (opts_.codeProvider) {
             code = opts_.codeProvider();
         } else {
-            std::fprintf(stderr, "Enter login code for %s: ", opts_.name.c_str());
+            std::fprintf(stderr, "\nEnter Telegram login code for %s: ", opts_.name.c_str());
             std::fflush(stderr);
             std::getline(std::cin, code);
         }
@@ -417,22 +443,25 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         while (s < code.size() && (code[s] == ' ' || code[s] == '\t')) ++s;
         code = code.substr(s);
 
+        log().info(opts_.name + ": Submitting authentication code...");
         json p;
         p["@type"] = "checkAuthenticationCode";
         p["code"] = code;
         client_.send(p.dump());
 
     } else if (st == "authorizationStateWaitPassword") {
+        log().info(opts_.name + ": 2-Step Verification (2FA password) is enabled on this Telegram account.");
         std::string pw;
         if (opts_.passwordProvider) {
             pw = opts_.passwordProvider();
         } else {
-            std::fprintf(stderr, "Enter 2FA password for %s (blank if none): ", opts_.name.c_str());
+            std::fprintf(stderr, "\nEnter 2FA cloud password for %s: ", opts_.name.c_str());
             std::fflush(stderr);
             std::getline(std::cin, pw);
         }
         while (!pw.empty() && (pw.back() == '\r' || pw.back() == '\n')) pw.pop_back();
 
+        log().info(opts_.name + ": Submitting 2FA password...");
         json p;
         p["@type"] = "checkAuthenticationPassword";
         p["password"] = pw;

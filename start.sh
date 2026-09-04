@@ -77,6 +77,40 @@ else
     log_success "All required dependencies are installed."
 fi
 
+# --- 1b. TDLib MTProto Native Library Auto-Installer ---
+log_info "Checking Telegram TDLib library (libtdjson.so)..."
+TDLIB_FOUND=false
+for dir in "/usr/local/lib" "/usr/lib" "/usr/lib/x86_64-linux-gnu" "$PWD/lib"; do
+    if [ -f "$dir/libtdjson.so" ]; then
+        TDLIB_FOUND=true
+        log_success "TDLib library found in $dir/libtdjson.so"
+        break
+    fi
+done
+
+if [ "$TDLIB_FOUND" = false ]; then
+    log_info "libtdjson.so not found. Downloading prebuilt official TDLib binary for Linux x86_64..."
+    mkdir -p lib
+    TDLIB_TMP="/tmp/tdlib_prebuilt.tgz"
+    if curl -sSL -f "https://registry.npmjs.org/@prebuilt-tdlib/linux-x64-glibc/-/linux-x64-glibc-0.1008067.0.tgz" -o "$TDLIB_TMP"; then
+        tar -xzf "$TDLIB_TMP" -C lib --strip-components=1 package/libtdjson.so
+        rm -f "$TDLIB_TMP"
+        ln -sf libtdjson.so lib/libtdjson.so.1.8.67 2>/dev/null || true
+
+        if [ "$(id -u)" -eq 0 ]; then
+            cp lib/libtdjson.so /usr/local/lib/
+            ldconfig 2>/dev/null || true
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo cp lib/libtdjson.so /usr/local/lib/ 2>/dev/null || true
+            sudo ldconfig 2>/dev/null || true
+        fi
+        log_success "TDLib library installed successfully."
+    else
+        log_error "Failed to download TDLib binary. Please check internet connection."
+        exit 1
+    fi
+fi
+
 # --- 2. Interactive Configuration Wizard (.env Setup) ---
 ENV_FILE=".env"
 
@@ -138,7 +172,6 @@ OWNER_ID=$INP_OWNER_ID
 LOGGER_ID=$INP_LOGGER_ID
 
 # Assistant Userbot & TDLib Session
-SESSION=assistant_session
 SESSION_NAME=assistant
 DATA_DIR=./data/tdlib_session
 PHONE_NUMBER=$INP_PHONE_NUMBER
@@ -168,12 +201,12 @@ fi
 
 # --- 3. Auto-Build Cycle ---
 echo ""
-log_info "Configuring and compiling anonx-cpp via CMake..."
+log_info "Configuring and compiling anonx-cpp via CMake (ANONX_WITH_TDLIB=ON)..."
 
 mkdir -p build
 NPROC=$(nproc 2>/dev/null || echo 4)
 
-if ! cmake -B build -S .; then
+if ! cmake -B build -S . -DANONX_WITH_TDLIB=ON; then
     echo ""
     log_error "CMake configuration failed!"
     echo "Please check missing dependencies or CMakeLists.txt logs."
@@ -195,7 +228,8 @@ echo -e "${GREEN}${BOLD}========================================================
 echo -e "${GREEN}${BOLD}                   Starting AnonXMusic (C++ Bot)                     ${NC}"
 echo -e "${GREEN}${BOLD}======================================================================${NC}"
 log_info "Launching bot process..."
-echo -e "${YELLOW}NOTE: If prompted for Telegram login code / OTP or 2FA password, type it directly below.${NC}"
+echo -e "${YELLOW}NOTE: Check your Telegram app for the official login code and enter it below.${NC}"
 echo ""
 
-exec ./build/anonx .env
+export LD_LIBRARY_PATH="/usr/local/lib:$PWD/lib:${LD_LIBRARY_PATH:-}"
+exec ./build/anonx "$ENV_FILE"
