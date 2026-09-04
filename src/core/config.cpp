@@ -1,230 +1,142 @@
-#include "senpai/core/config.hpp"
-#include "senpai/utils/string_utils.hpp"
-
-#include <algorithm>
-#include <cctype>
+#include <anonx/core/config.hpp>
+#include <anonx/core/logger.hpp>
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <sstream>
-#include <unordered_map>
 
-namespace senpai {
+namespace anonx::core {
+
 namespace {
 
-using utils::trim;
-using utils::toLower;
-
-std::string stripQuotes(const std::string& s) {
-    if (s.size() >= 2) {
-        char f = s.front();
-        char l = s.back();
-        if ((f == '"' && l == '"') || (f == '\'' && l == '\'')) {
-            return s.substr(1, s.size() - 2);
-        }
+std::optional<std::string> get_env_var(const char* name) {
+    const char* val = std::getenv(name);
+    if (val && *val) {
+        return std::string(val);
     }
-    return s;
+    return std::nullopt;
 }
 
-std::unordered_map<std::string, std::string> parseEnvFile(const std::string& path) {
-    std::unordered_map<std::string, std::string> out;
-    if (path.empty()) return out;
+} // namespace
 
-    std::ifstream in(path);
-    if (!in) return out;
-
-    std::string line;
-    while (std::getline(in, line)) {
-        std::string t = trim(line);
-        if (t.empty() || t[0] == '#') continue;
-
-        if (t.rfind("export ", 0) == 0) {
-            t = trim(t.substr(7));
+std::vector<std::string> ConfigLoader::split_string(const std::string& s, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream token_stream(s);
+    while (std::getline(token_stream, token, delimiter)) {
+        if (!token.empty()) {
+            tokens.push_back(token);
         }
-
-        std::size_t eq = t.find('=');
-        if (eq == std::string::npos) continue;
-
-        std::string key = trim(t.substr(0, eq));
-        if (key.empty()) continue;
-
-        std::string val = stripQuotes(trim(t.substr(eq + 1)));
-        out[key] = val;
     }
-    return out;
+    return tokens;
 }
 
-class EnvSource {
-public:
-    explicit EnvSource(std::unordered_map<std::string, std::string> dotenv)
-        : dotenv_(std::move(dotenv)) {}
+BotConfig ConfigLoader::load(const std::string& config_path) {
+    BotConfig config;
 
-    std::string str(const char* key, const std::string& def = "") const {
-        if (const char* e = std::getenv(key)) return std::string(e);
-        auto it = dotenv_.find(key);
-        if (it != dotenv_.end()) return it->second;
-        return def;
-    }
-
-    std::int64_t integer(const char* key, std::int64_t def) const {
-        std::string v = str(key);
-        if (v.empty()) return def;
+    // 1. Try reading configuration file if present
+    std::ifstream file(config_path);
+    if (file.is_open()) {
         try {
-            std::size_t pos = 0;
-            long long parsed = std::stoll(v, &pos);
-            return static_cast<std::int64_t>(parsed);
-        } catch (...) {
-            return def;
-        }
-    }
+            nlohmann::json j;
+            file >> j;
 
-    bool boolean(const char* key, bool def) const {
-        std::string v = str(key);
-        if (v.empty()) return def;
-        return toLower(v) == "true";
-    }
+            if (j.contains("bot_token")) config.bot_token = j["bot_token"].get<std::string>();
+            if (j.contains("api_id")) config.api_id = j["api_id"].get<int32_t>();
+            if (j.contains("api_hash")) config.api_hash = j["api_hash"].get<std::string>();
+            if (j.contains("string_session")) config.string_session = j["string_session"].get<std::string>();
+            if (j.contains("owner_id")) config.owner_id = j["owner_id"].get<int64_t>();
 
-private:
-    std::unordered_map<std::string, std::string> dotenv_;
-};
-
-}
-
-Config Config::load(const std::string& envFile) {
-    EnvSource env(parseEnvFile(envFile));
-    Config c;
-
-    c.api_id    = env.integer("API_ID", 0);
-    c.api_hash  = env.str("API_HASH");
-    c.bot_token = env.str("BOT_TOKEN");
-    c.logger_id = env.integer("LOGGER_ID", 0);
-    c.owner_id  = env.integer("OWNER_ID", 0);
-
-    c.session1 = env.str("SESSION");
-    c.session2 = env.str("SESSION2");
-    c.session3 = env.str("SESSION3");
-
-    c.session_name = env.str("SESSION_NAME");
-    c.data_dir     = env.str("DATA_DIR", env.str("SESSION_DIR", ""));
-
-    if (c.session1.empty()) {
-        if (!c.session_name.empty()) {
-            c.session1 = c.session_name;
-        } else if (!c.data_dir.empty()) {
-            c.session1 = c.data_dir;
-        }
-    }
-    if (c.session_name.empty()) {
-        c.session_name = !c.session1.empty() ? c.session1 : "assistant";
-    }
-    if (c.data_dir.empty()) {
-        c.data_dir = "./data/tdlib_session";
-    }
-
-    c.phone1 = env.str("PHONE_NUMBER");
-    c.phone2 = env.str("PHONE_NUMBER2");
-    c.phone3 = env.str("PHONE_NUMBER3");
-
-    c.db_path = env.str("DB_PATH", "senpai.db");
-
-    c.duration_limit_seconds = static_cast<int>(env.integer("DURATION_LIMIT", 60)) * 60;
-    c.queue_limit    = static_cast<int>(env.integer("QUEUE_LIMIT", 20));
-    c.playlist_limit = static_cast<int>(env.integer("PLAYLIST_LIMIT", 20));
-
-    c.support_channel = env.str("SUPPORT_CHANNEL", "https://t.me/fallenx");
-    c.support_chat    = env.str("SUPPORT_CHAT", "https://t.me/DevilsHeavenMF");
-
-    c.auto_leave = env.boolean("AUTO_LEAVE", false);
-    c.auto_end   = env.boolean("AUTO_END", false);
-    c.thumb_gen  = env.boolean("THUMB_GEN", true);
-    c.video_play = env.boolean("VIDEO_PLAY", true);
-
-    c.lang_code = env.str("LANG_CODE", "en");
-
-    {
-        std::string raw = env.str("COOKIES_URL");
-        if (raw.empty()) raw = env.str("COOKIES_LINK");
-        if (raw.empty()) raw = env.str("COOKIE_URL");
-        if (raw.empty()) raw = env.str("COOKIE_LINK");
-
-        for (char& ch : raw) {
-            if (ch == ',' || ch == ';') ch = ' ';
-        }
-        std::istringstream iss(raw);
-        std::string tok;
-        while (iss >> tok) {
-            if (tok.rfind("http://", 0) == 0 || tok.rfind("https://", 0) == 0) {
-                c.cookies_url.push_back(tok);
+            if (j.contains("sudo_users") && j["sudo_users"].is_array()) {
+                for (const auto& item : j["sudo_users"]) {
+                    config.sudo_users.insert(item.get<int64_t>());
+                }
             }
+
+            if (j.contains("mongo_uri")) config.mongo_uri = j["mongo_uri"].get<std::string>();
+            if (j.contains("db_name")) config.db_name = j["db_name"].get<std::string>();
+            if (j.contains("log_group_id")) config.log_group_id = j["log_group_id"].get<int64_t>();
+            if (j.contains("audio_quality")) config.audio_quality = j["audio_quality"].get<std::string>();
+            if (j.contains("duration_limit_sec")) config.duration_limit_sec = j["duration_limit_sec"].get<int32_t>();
+            if (j.contains("log_level")) config.log_level = j["log_level"].get<std::string>();
+            if (j.contains("data_dir")) config.data_dir = j["data_dir"].get<std::string>();
+            if (j.contains("downloads_dir")) config.downloads_dir = j["downloads_dir"].get<std::string>();
+            if (j.contains("auto_update_ytdlp")) config.auto_update_ytdlp = j["auto_update_ytdlp"].get<bool>();
+
+            ANONX_LOG_INFO("Config", "Loaded configuration file from: ", config_path);
+        } catch (const std::exception& ex) {
+            ANONX_LOG_WARN("Config", "Failed to parse ", config_path, ": ", ex.what(), " (using defaults & env vars)");
+        }
+    } else {
+        ANONX_LOG_INFO("Config", "Config file '", config_path, "' not found; relying on environment variables.");
+    }
+
+    // 2. Override with Environment Variables (Highest Precedence)
+    apply_env_overrides(config);
+
+    return config;
+}
+
+void ConfigLoader::apply_env_overrides(BotConfig& config) {
+    if (auto val = get_env_var("BOT_TOKEN")) config.bot_token = *val;
+    if (auto val = get_env_var("API_ID")) {
+        try { config.api_id = std::stoi(*val); } catch (...) {}
+    }
+    if (auto val = get_env_var("API_HASH")) config.api_hash = *val;
+    if (auto val = get_env_var("STRING_SESSION")) config.string_session = *val;
+    else if (auto val = get_env_var("SESSION_STRING")) config.string_session = *val;
+
+    if (auto val = get_env_var("OWNER_ID")) {
+        try { config.owner_id = std::stoll(*val); } catch (...) {}
+    }
+
+    if (auto val = get_env_var("SUDO_USERS")) {
+        auto tokens = split_string(*val, ' ');
+        for (const auto& token : tokens) {
+            try {
+                config.sudo_users.insert(std::stoll(token));
+            } catch (...) {}
         }
     }
 
-    c.default_thumb = env.str("DEFAULT_THUMB", c.default_thumb);
-    c.ping_img      = env.str("PING_IMG", c.ping_img);
-    c.ping_img      = env.str("PING_IMG_URL", c.ping_img);
-    c.start_img     = env.str("START_IMG", c.start_img);
-    c.start_img     = env.str("START_IMG_URL", c.start_img);
+    if (auto val = get_env_var("MONGO_URI")) config.mongo_uri = *val;
+    else if (auto val = get_env_var("MONGO_DB_URI")) config.mongo_uri = *val;
 
-    return c;
-}
+    if (auto val = get_env_var("DB_NAME")) config.db_name = *val;
 
-void Config::check() const {
-    std::vector<std::string> missing;
-    if (api_id == 0)        missing.push_back("API_ID");
-    if (api_hash.empty())   missing.push_back("API_HASH");
-    if (bot_token.empty())  missing.push_back("BOT_TOKEN");
-    if (logger_id == 0)     missing.push_back("LOGGER_ID");
-    if (owner_id == 0)      missing.push_back("OWNER_ID");
+    if (auto val = get_env_var("LOG_GROUP_ID")) {
+        try { config.log_group_id = std::stoll(*val); } catch (...) {}
+    }
 
-    if (!missing.empty()) {
-        std::string list;
-        for (std::size_t i = 0; i < missing.size(); ++i) {
-            if (i) list += ", ";
-            list += missing[i];
-        }
-        throw ConfigError("Missing required environment variables: " + list);
+    if (auto val = get_env_var("LOG_LEVEL")) config.log_level = *val;
+    if (auto val = get_env_var("AUDIO_QUALITY")) config.audio_quality = *val;
+    if (auto val = get_env_var("AUTO_UPDATE_YTDLP")) {
+        config.auto_update_ytdlp = (*val == "1" || *val == "true" || *val == "TRUE");
     }
 }
 
-int Config::assistantCount() const {
-    int n = 0;
-    if (!session1.empty() || !phone1.empty()) ++n;
-    if (!session2.empty() || !phone2.empty()) ++n;
-    if (!session3.empty() || !phone3.empty()) ++n;
-    return n > 0 ? n : 1;
-}
+void ConfigLoader::save(const BotConfig& config, const std::string& config_path) {
+    nlohmann::json j;
+    j["bot_token"] = config.bot_token;
+    j["api_id"] = config.api_id;
+    j["api_hash"] = config.api_hash;
+    j["string_session"] = config.string_session;
+    j["owner_id"] = config.owner_id;
+    j["sudo_users"] = std::vector<int64_t>(config.sudo_users.begin(), config.sudo_users.end());
+    j["mongo_uri"] = config.mongo_uri;
+    j["db_name"] = config.db_name;
+    j["log_group_id"] = config.log_group_id;
+    j["audio_quality"] = config.audio_quality;
+    j["duration_limit_sec"] = config.duration_limit_sec;
+    j["log_level"] = config.log_level;
+    j["data_dir"] = config.data_dir;
+    j["downloads_dir"] = config.downloads_dir;
+    j["auto_update_ytdlp"] = config.auto_update_ytdlp;
 
-std::vector<std::string> Config::assistantPhones() const {
-    std::vector<std::string> out;
-
-    for (const std::string* p : {&phone1, &phone2, &phone3}) {
-        if (!p->empty()) out.push_back(*p);
+    std::ofstream file(config_path);
+    if (file.is_open()) {
+        file << j.dump(4);
     }
-    return out;
 }
 
-std::string Config::redactedSummary() const {
-    auto yn = [](bool b) { return b ? "yes" : "no"; };
-    std::ostringstream os;
-    os << "config: owner_id=" << owner_id
-       << " logger_id=" << logger_id
-       << " lang=" << lang_code
-       << " assistants=" << assistantCount()
-       << " db=" << db_path
-       << " duration_limit=" << (duration_limit_seconds / 60) << "min"
-       << " queue_limit=" << queue_limit
-       << " playlist_limit=" << playlist_limit
-       << " auto_leave=" << yn(auto_leave)
-       << " auto_end=" << yn(auto_end)
-       << " thumb_gen=" << yn(thumb_gen)
-       << " video_play=" << yn(video_play)
-       << " cookies=" << cookies_url.size()
-       << " | session=" << (!session1.empty() ? session1 : (!session_name.empty() ? session_name : "none"))
-       << " data_dir=" << data_dir
-       << " | secrets set: api_hash=" << yn(!api_hash.empty())
-       << " bot_token=" << yn(!bot_token.empty())
-
-       << " phones=" << assistantPhones().size();
-    return os.str();
-}
-
-}
+} // namespace anonx::core

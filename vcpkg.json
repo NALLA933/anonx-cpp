@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "anonx-cpp",
+  "version-string": "1.0.0",
+  "description": "Production-grade high-performance C++20 Telegram Music Bot",
+  "homepage": "https://github.com/yourusername/anonx-cpp",
+  "license": "MIT",
+  "dependencies": [
+    "fmt",
+    "spdlog",
+    "nlohmann-json",
+    "openssl",
+    "zlib",
+    "mongo-cxx-driver",
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "avformat",
+        "avutil",
+        "swresample",
+        "opus"
+      ]
+    }
+  ],
+  "builtin-baseline": "5047b4756543b59df9ceb10c55d0a6aa332612bb"
+}

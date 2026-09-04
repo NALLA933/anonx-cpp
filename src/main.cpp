@@ -1,145 +1,105 @@
-#include <cerrno>
-#include <csignal>
-#include <cstring>
-#include <exception>
-#include <iostream>
-#include <string>
-
-#include <sys/stat.h>
-
-#include "senpai/core/version.hpp"
-
-#if defined(SENPAI_WITH_TDLIB)
+#include <anonx/core/config.hpp>
+#include <anonx/core/logger.hpp>
+#include <anonx/database/mongo_client.hpp>
+#include <anonx/telegram/dispatcher.hpp>
+#include <anonx/telegram/session_manager.hpp>
+#include <atomic>
 #include <chrono>
-#include <memory>
+#include <csignal>
+#include <filesystem>
+#include <iostream>
 #include <thread>
-
-#include "senpai/core/config.hpp"
-#include "senpai/core/logger.hpp"
-#include "senpai/core/runtime.hpp"
-#include "senpai/telegram/userbot.hpp"
-
-#include "senpai/voice/voice_signaling.hpp"
-#include "senpai/voice/ntgcalls_transport.hpp"
-#endif
 
 namespace {
 
-#if defined(SENPAI_WITH_TDLIB)
+std::atomic<bool> g_running{true};
 
-volatile std::sig_atomic_t g_stop = 0;
-
-extern "C" void onSignal(int sig) {
-    std::fprintf(stderr, "\n[SIGNAL] Received signal %d (%s) — stopping bot cleanly...\n",
-                 sig, sig == SIGINT ? "SIGINT (Ctrl+C)" : (sig == SIGTERM ? "SIGTERM" : "OTHER"));
-    g_stop = sig ? sig : 1;
+extern "C" void signal_handler(int sig) {
+    std::cout << "\n[Signal] Caught termination signal (" << sig << "). Initiating graceful shutdown...\n";
+    g_running = false;
 }
 
+void setup_signal_handlers() {
 #if !defined(_WIN32)
-extern "C" void onCrashSignal(int sig) {
-    const char* name = "UNKNOWN";
-    if (sig == SIGSEGV) name = "SIGSEGV (Segmentation Fault)";
-    else if (sig == SIGABRT) name = "SIGABRT (Aborted)";
-    else if (sig == SIGBUS) name = "SIGBUS (Bus Error)";
-    else if (sig == SIGFPE) name = "SIGFPE (Floating Point Exception)";
-    else if (sig == SIGILL) name = "SIGILL (Illegal Instruction)";
-    std::fprintf(stderr, "\n[FATAL CRASH] Process received fatal signal %d: %s\n", sig, name);
-    std::fflush(stderr);
-    _Exit(128 + sig);
-}
+    // Ignore SIGPIPE so unexpected audio pipe closures don't kill the bot
+    ::signal(SIGPIPE, SIG_IGN);
 #endif
 
-bool makeDir(const char* path) {
-    return ::mkdir(path, 0755) == 0 || errno == EEXIST;
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 }
 
-bool ensureDirs(const senpai::Logger& log) {
-    for (const char* dir : {"cache", "downloads", "tdlib", "data", "data/tdlib_session", "cookies"}) {
-        if (!makeDir(dir)) {
-            log.critical(std::string("cannot create directory '") + dir + "': " +
-                         std::strerror(errno));
-            return false;
+void print_banner() {
+    std::cout << R"(
+  █████╗ ███╗   ██╗ ██████╗ ███╗   ██╗██╗  ██╗       ██████╗██████╗ ██████╗ 
+ ██╔══██╗████╗  ██║██╔═══██╗████╗  ██║╚██╗██╔╝      ██╔════╝██╔══██╗██╔══██╗
+ ███████║██╔██╗ ██║██║   ██║██╔██╗ ██║ ╚███╔╝ █████╗██║     ██████╔╝██████╔╝
+ ██╔══██║██║╚██╗██║██║   ██║██║╚██╗██║ ██╔██╗ ╚════╝██║     ██╔═══╝ ██╔═══╝ 
+ ██║  ██║██║ ╚████║╚██████╔╝██║ ╚████║██╔╝ ██╗      ╚██████╗██║     ██║     
+ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝       ╚═════╝╚═╝     ╚═╝     
+        High-Performance C++20 Telegram Music Bot (Zero-VPS Build Engine)
+    )" << std::endl;
+}
+
+void ensure_directories(const anonx::core::BotConfig& config) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (const auto& dir : {config.data_dir, config.downloads_dir, "sessions", "cache"}) {
+        if (!fs::exists(dir, ec)) {
+            fs::create_directories(dir, ec);
         }
     }
-    return true;
 }
-
-int runBot(const std::string& envFile) {
-    senpai::LogSink::instance().init("log.txt");
-    senpai::Logger log("senpai");
-    log.info(std::string("SenpaiMusic C++ ") + senpai::kVersion + " — initialising");
-
-    senpai::Config config = senpai::Config::load(envFile);
-    config.check();
-
-    if (!ensureDirs(log)) return 1;
-
-    std::unique_ptr<senpai::Runtime> runtime;
-
-    senpai::NtgCallsTransport transport(senpai::makeDeferredAssistantSignaling(
-        [&runtime]() -> senpai::TelegramClient* {
-            if (!runtime) return nullptr;
-            for (const std::unique_ptr<senpai::TelegramClient>& c :
-                 runtime->userbot().clients()) {
-                if (c && c->authorized()) return c.get();
-            }
-            return nullptr;
-        }));
-
-    runtime = std::make_unique<senpai::Runtime>(config, transport);
-    if (!runtime->start()) {
-        log.critical("startup failed — see the messages above");
-        return 1;
-    }
-
-#if !defined(_WIN32)
-    // Ignore SIGPIPE so broken ffmpeg/network pipes don't terminate the bot process
-    ::signal(SIGPIPE, SIG_IGN);
-
-    // Register fatal signal diagnostics
-    ::signal(SIGSEGV, onCrashSignal);
-    ::signal(SIGABRT, onCrashSignal);
-    ::signal(SIGBUS, onCrashSignal);
-    ::signal(SIGFPE, onCrashSignal);
-    ::signal(SIGILL, onCrashSignal);
-#endif
-
-    struct sigaction sa;
-    std::memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = &onSignal;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    ::sigaction(SIGINT, &sa, nullptr);
-    ::sigaction(SIGTERM, &sa, nullptr);
-
-    log.info("Running. Press Ctrl+C to stop.");
-    while (g_stop == 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
-
-    runtime->stop();
-    runtime.reset();
-    senpai::LogSink::instance().close();
-    return 0;
-}
-
-#endif
 
 } // namespace
 
 int main(int argc, char** argv) {
-    const std::string envFile = (argc > 1) ? argv[1] : ".env";
-    try {
-        std::setvbuf(stdout, nullptr, _IOLBF, 0);
-#if defined(SENPAI_WITH_TDLIB)
-        return runBot(envFile);
-#else
-        (void)envFile;
-        std::cerr << "SenpaiMusic C++ was built without TDLib (-DSENPAI_WITH_TDLIB=ON). Cannot run.\n";
-        return 1;
-#endif
-    } catch (const std::exception& ex) {
-        std::cerr << "fatal: " << ex.what() << "\n";
-        return 1;
+    print_banner();
+
+    std::string config_file = (argc > 1) ? argv[1] : "config.json";
+
+    // 1. Load Configuration
+    anonx::core::BotConfig config = anonx::core::ConfigLoader::load(config_file);
+
+    // 2. Initialize Logging
+    anonx::core::Logger::instance().init(config.log_level, "bot.log");
+    ANONX_LOG_INFO("Main", "Bootstrapping AnonX-CPP Engine...");
+
+    if (!config.is_valid()) {
+        ANONX_LOG_WARN("Main", "Incomplete Telegram credentials (BOT_TOKEN, API_ID, or API_HASH missing).");
+        ANONX_LOG_WARN("Main", "Please provide credentials via config.json or environment variables.");
     }
+
+    // 3. Ensure Runtime Directories
+    ensure_directories(config);
+
+    // 4. Setup Signal Handling
+    setup_signal_handlers();
+
+    // 5. Connect Database Layer (with auto-fallback)
+    ANONX_LOG_INFO("Main", "Initializing MongoDB connection pool...");
+    anonx::database::MongoClient::instance().connect(config.mongo_uri, config.db_name);
+
+    // 6. Start Telegram Session Manager & Dispatcher
+    ANONX_LOG_INFO("Main", "Launching TDLib sessions...");
+    auto& session_mgr = anonx::telegram::SessionManager::instance();
+    session_mgr.start(config);
+
+    auto& dispatcher = anonx::telegram::CommandDispatcher::instance();
+    dispatcher.init(config, session_mgr.bot_client());
+
+    ANONX_LOG_INFO("Main", "AnonX-CPP Bot is now LIVE and listening for commands.");
+
+    // 7. Main Event Loop
+    while (g_running) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+
+    // 8. Graceful Teardown
+    ANONX_LOG_INFO("Main", "Shutting down AnonX-CPP subsystems...");
+    session_mgr.stop();
+    anonx::database::MongoClient::instance().disconnect();
+
+    ANONX_LOG_INFO("Main", "All subsystems halted cleanly. Exiting.");
+    return 0;
 }

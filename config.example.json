@@ -1,0 +1,19 @@
+{
+  "bot_token": "YOUR_TELEGRAM_BOT_TOKEN_HERE",
+  "api_id": 1234567,
+  "api_hash": "YOUR_TELEGRAM_API_HASH_HERE",
+  "string_session": "",
+  "owner_id": 1234567890,
+  "sudo_users": [
+    1234567890
+  ],
+  "mongo_uri": "mongodb://localhost:27017/anonx",
+  "db_name": "anonx",
+  "log_group_id": -1001234567890,
+  "audio_quality": "high",
+  "duration_limit_sec": 7200,
+  "log_level": "info",
+  "data_dir": "data",
+  "downloads_dir": "downloads",
+  "auto_update_ytdlp": true
+}

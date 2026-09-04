@@ -1,357 +1,289 @@
-#include "senpai/telegram/dispatcher.hpp"
+#include <anonx/telegram/dispatcher.hpp>
+#include <anonx/audio/audio_streamer.hpp>
+#include <anonx/database/mongo_client.hpp>
+#include <anonx/telegram/session_manager.hpp>
+#include <anonx/core/logger.hpp>
+#include <chrono>
+#include <sstream>
 
-#include <nlohmann/json.hpp>
+namespace anonx::telegram {
 
-#include <algorithm>
-#include <cctype>
-
-#include "senpai/utils/string_utils.hpp"
-
-namespace senpai {
 namespace {
 
-using nlohmann::json;
-
-std::string strField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key) && j[key].is_string()) {
-        return j[key].get<std::string>();
-    }
-    return std::string();
+int64_t get_current_epoch_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
 }
 
-std::int64_t intField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key)) {
-        const auto& val = j[key];
-        if (val.is_number()) {
-            return val.get<std::int64_t>();
-        }
-        if (val.is_string()) {
-            try {
-                return std::stoll(val.get<std::string>());
-            } catch (...) {
-                return 0;
-            }
-        }
+std::pair<std::string, std::string> parse_command_and_args(const std::string& text) {
+    if (text.empty() || text[0] != '/') return {"", ""};
+    size_t space_pos = text.find(' ');
+    std::string cmd = text.substr(1, space_pos - 1);
+    // Strip bot username if tagged (e.g. /play@MyBot)
+    size_t at_pos = cmd.find('@');
+    if (at_pos != std::string::npos) {
+        cmd = cmd.substr(0, at_pos);
     }
-    return 0;
+    std::string args;
+    if (space_pos != std::string::npos) {
+        args = text.substr(space_pos + 1);
+        while (!args.empty() && args.front() == ' ') args.erase(args.begin());
+    }
+    return {cmd, args};
 }
 
 } // namespace
 
-std::int64_t MessageContext::reply(const std::string& html) const {
-    return client ? client->sendMessage(chatId, html) : 0;
+CommandDispatcher::CommandDispatcher() = default;
+
+CommandDispatcher& CommandDispatcher::instance() {
+    static CommandDispatcher dispatcher;
+    return dispatcher;
 }
 
-void CallbackContext::answer(const std::string& text, bool alert) const {
-    if (!client || queryId == 0) return;
-    json req;
-    req["@type"] = "answerCallbackQuery";
-    req["callback_query_id"] = std::to_string(queryId);
-    if (!text.empty()) req["text"] = text;
-    req["show_alert"] = alert;
-    client->raw().send(req.dump());
-}
+void CommandDispatcher::init(const core::BotConfig& config, std::shared_ptr<TDLibClient> client) {
+    config_ = config;
+    client_ = client;
+    start_time_ = get_current_epoch_ms();
 
-namespace filters {
-
-Filter command(std::vector<std::string> names) {
-    for (auto& n : names) n = utils::toLower(n);
-    return Filter([names](const MessageContext& c) {
-        if (c.command.empty()) return false;
-        const std::string name = utils::toLower(c.command[0]);
-        for (const auto& n : names) {
-            if (n == name) return true;
-        }
-        return false;
-    });
-}
-
-Filter privateChat() {
-    return Filter([](const MessageContext& c) { return c.chatType == ChatType::Private; });
-}
-
-Filter groupChat() {
-    return Filter([](const MessageContext& c) { return c.chatType == ChatType::Group; });
-}
-
-Filter user(std::vector<std::int64_t> ids) {
-    return Filter([ids](const MessageContext& c) {
-        for (std::int64_t id : ids) {
-            if (id == c.fromUserId) return true;
-        }
-        return false;
-    });
-}
-
-Filter userWhere(std::function<bool(std::int64_t)> pred) {
-    return Filter([pred](const MessageContext& c) {
-        return c.fromUserId != 0 && pred && pred(c.fromUserId);
-    });
-}
-
-Filter textMessage() {
-    return Filter([](const MessageContext& c) { return !c.text.empty(); });
-}
-
-CallbackFilter callbackData(std::string exact) {
-    return CallbackFilter([exact](const CallbackContext& c) { return c.data == exact; });
-}
-
-CallbackFilter callbackDataPrefix(std::string prefix) {
-    return CallbackFilter(
-        [prefix](const CallbackContext& c) { return c.data.rfind(prefix, 0) == 0; });
-}
-
-} // namespace filters
-
-void Dispatcher::setPrefixes(std::vector<char> prefixes) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    prefixes_ = std::move(prefixes);
-}
-
-void Dispatcher::setBotUsername(std::string username) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    botUsername_ = utils::toLower(std::move(username));
-}
-
-void Dispatcher::attach(TelegramClient& client) {
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        client_ = &client;
-        if (botUsername_.empty() && !client.me().username.empty()) {
-            botUsername_ = utils::toLower(client.me().username);
-        }
-    }
-    startWorkers();
-    client.setUpdateObserver([this](const std::string& u) { onUpdate(u); });
-}
-
-Dispatcher::~Dispatcher() {
-    stopWorkers();
-}
-
-void Dispatcher::setWorkers(std::size_t n) {
-    std::lock_guard<std::mutex> lk(qMutex_);
-    workerCount_ = n;
-}
-
-void Dispatcher::startWorkers() {
-    std::lock_guard<std::mutex> lk(qMutex_);
-    if (running_.load() || workerCount_ == 0) return;
-    running_.store(true);
-    workers_.reserve(workerCount_);
-    for (std::size_t i = 0; i < workerCount_; ++i) {
-        workers_.emplace_back([this] { workerLoop(); });
-    }
-}
-
-void Dispatcher::stopWorkers() {
-    if (!running_.exchange(false)) {
-
-        std::lock_guard<std::mutex> lk(qMutex_);
-        queue_.clear();
-        return;
-    }
-    qCv_.notify_all();
-    for (std::thread& t : workers_) {
-        if (t.joinable()) t.join();
-    }
-    std::lock_guard<std::mutex> lk(qMutex_);
-    workers_.clear();
-    queue_.clear();
-}
-
-void Dispatcher::workerLoop() {
-    for (;;) {
-        std::string update;
-        {
-            std::unique_lock<std::mutex> lk(qMutex_);
-            qCv_.wait(lk, [this] { return !queue_.empty() || !running_.load(); });
-            if (queue_.empty()) {
-                if (!running_.load()) return;
-                continue;
+    // Register update listener
+    if (client_) {
+        client_->add_update_listener("updateNewMessage", [this](const nlohmann::json& update) {
+            if (update.contains("message")) {
+                this->dispatch_message(update["message"]);
             }
-            update = std::move(queue_.front());
-            queue_.pop_front();
-            ++busy_;
-        }
-
-        try {
-            handleUpdate(update);
-        } catch (...) {
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(qMutex_);
-            --busy_;
-        }
-        qCv_.notify_all();
+        });
     }
+
+    // Hook track end callback to auto-play next track in queue
+    audio::AudioStreamer::instance().set_on_track_ended([this](int64_t chat_id, const database::TrackItem& track) {
+        ANONX_LOG_INFO("Dispatcher", "Auto-advancing track in chat: ", chat_id, " (finished: ", track.title, ")");
+        this->play_next_in_queue(chat_id);
+    });
+
+    ANONX_LOG_INFO("Dispatcher", "Command Dispatcher initialized with core audio loop.");
 }
 
-bool Dispatcher::idle() const {
-    std::lock_guard<std::mutex> lk(qMutex_);
-    return queue_.empty() && busy_ == 0;
-}
+void CommandDispatcher::dispatch_message(const nlohmann::json& message) {
+    if (!message.contains("content") || !message.contains("chat_id")) return;
 
-void Dispatcher::onUpdate(const std::string& updateJson) {
-    if (running_.load()) {
-        {
-            std::lock_guard<std::mutex> lk(qMutex_);
-            queue_.push_back(updateJson);
-        }
-        qCv_.notify_one();
+    int64_t chat_id = message["chat_id"].get<int64_t>();
+    int64_t msg_id = message.value("id", int64_t{0});
+
+    int64_t sender_user_id = 0;
+    if (message.contains("sender_id") && message["sender_id"].value("@type", "") == "messageSenderUser") {
+        sender_user_id = message["sender_id"].value("user_id", int64_t{0});
+    }
+
+    // Check blacklist / whitelist
+    if (database::MongoClient::instance().is_chat_blocked(chat_id)) {
         return;
     }
 
-    handleUpdate(updateJson);
-}
-
-void Dispatcher::onMessage(Filter filter, MessageHandler handler) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    messageHandlers_.push_back(MEntry{std::move(filter), std::move(handler)});
-}
-
-void Dispatcher::onCallback(CallbackFilter filter, CallbackHandler handler) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    callbackHandlers_.push_back(CEntry{std::move(filter), std::move(handler)});
-}
-
-void Dispatcher::onEveryMessage(MessageHandler handler) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    watchers_.push_back(std::move(handler));
-}
-
-std::vector<std::string> Dispatcher::parseCommand(const std::string& text) const {
-    std::vector<std::string> out;
-    if (text.empty()) return out;
-
-    bool okPrefix = false;
-    for (char p : prefixes_) {
-        if (p == text[0]) { okPrefix = true; break; }
-    }
-    if (!okPrefix) return out;
-
-    std::vector<std::string> tokens = utils::splitWs(text);
-    if (tokens.empty()) return out;
-
-    std::string head = tokens[0].substr(1);
-    const auto at = head.find('@');
-    if (at != std::string::npos) {
-        const std::string uname = head.substr(at + 1);
-        head = head.substr(0, at);
-
-        if (!uname.empty() && !botUsername_.empty() && utils::toLower(uname) != botUsername_) {
-            return {};
-        }
-    }
-    if (head.empty()) return {};
-
-    out.push_back(head);
-    for (std::size_t i = 1; i < tokens.size(); ++i) out.push_back(tokens[i]);
-    return out;
-}
-
-bool Dispatcher::dispatchMessage(MessageContext& ctx) {
-    std::vector<MEntry> handlers;
-    std::vector<MessageHandler> watchers;
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        handlers = messageHandlers_;
-        watchers = watchers_;
+    const auto& content = message["content"];
+    std::string text;
+    if (content.value("@type", "") == "messageText" && content.contains("text")) {
+        text = content["text"].value("text", "");
     }
 
-    for (const auto& w : watchers)
-        w(ctx);
-    for (const auto& e : handlers) {
-        if (e.filter(ctx)) {
-            e.handler(ctx);
-            return true;
-        }
+    if (text.empty() || text[0] != '/') {
+        return;
     }
-    return false;
+
+    auto [cmd, args] = parse_command_and_args(text);
+    if (cmd.empty()) return;
+
+    ANONX_LOG_INFO("Dispatcher", "Command received: /", cmd, " from user ", sender_user_id, " in chat ", chat_id);
+
+    if (cmd == "play" || cmd == "p") {
+        handle_play(chat_id, sender_user_id, msg_id, args);
+    } else if (cmd == "skip" || cmd == "next") {
+        handle_skip(chat_id, sender_user_id, msg_id);
+    } else if (cmd == "pause") {
+        handle_pause(chat_id, sender_user_id, msg_id);
+    } else if (cmd == "resume") {
+        handle_resume(chat_id, sender_user_id, msg_id);
+    } else if (cmd == "stop" || cmd == "end") {
+        handle_stop(chat_id, sender_user_id, msg_id);
+    } else if (cmd == "queue" || cmd == "q") {
+        handle_queue(chat_id, sender_user_id, msg_id);
+    } else if (cmd == "volume" || cmd == "vol") {
+        handle_volume(chat_id, sender_user_id, msg_id, args);
+    } else if (cmd == "ping") {
+        handle_ping(chat_id, msg_id);
+    } else if (cmd == "help" || cmd == "start") {
+        handle_help(chat_id, msg_id);
+    }
 }
 
-bool Dispatcher::dispatchCallback(CallbackContext& ctx) {
-    std::vector<CEntry> handlers;
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        handlers = callbackHandlers_;
-    }
-    for (const auto& e : handlers) {
-        if (e.filter(ctx)) {
-            e.handler(ctx);
-            return true;
-        }
-    }
-    return false;
-}
-
-void Dispatcher::handleUpdate(const std::string& updateJson) {
-    TelegramClient* client = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(mtx_);
-        client = client_;
+void CommandDispatcher::handle_play(int64_t chat_id, int64_t user_id, int64_t msg_id, const std::string& query) {
+    if (query.empty()) {
+        client_->send_message(chat_id, "❗ Please provide a song name, YouTube URL, or stream link.\nExample: `/play Believer`", msg_id);
+        return;
     }
 
-    json j = json::parse(updateJson, nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return;
+    database::TrackItem track;
+    track.id = std::to_string(get_current_epoch_ms());
+    track.title = query;
+    track.url = query;
+    track.requester_id = user_id;
+    track.added_timestamp = get_current_epoch_ms();
 
-    const std::string type = strField(j, "@type");
+    auto current_state = audio::AudioStreamer::instance().get_state(chat_id);
 
-    if (type == "updateNewMessage" && j.contains("message") && j["message"].is_object()) {
-        const json& m = j["message"];
-        MessageContext ctx;
-        ctx.client = client;
-        ctx.chatId = intField(m, "chat_id");
-        ctx.chatType = ctx.chatId >= 0 ? ChatType::Private : ChatType::Group;
-        ctx.isPrivate = ctx.chatId >= 0;
-        ctx.messageId = intField(m, "id");
+    if (current_state == audio::PlayerState::Idle) {
+        // Ensure bot/assistant is connected to voice chat
+        SessionManager::instance().join_voice_chat(chat_id);
 
-        if (m.contains("sender_id") && m["sender_id"].is_object()) {
-            const json& s = m["sender_id"];
-            if (strField(s, "@type") == "messageSenderUser") {
-                ctx.fromUserId = intField(s, "user_id");
-            }
-        }
-
-        if (m.contains("reply_to") && m["reply_to"].is_object()) {
-            const json& r = m["reply_to"];
-            if (strField(r, "@type") == "messageReplyToMessage") {
-                const std::int64_t rChat = intField(r, "chat_id");
-                if (rChat == 0 || rChat == ctx.chatId)
-                    ctx.replyToMessageId = intField(r, "message_id");
-            }
+        bool started = audio::AudioStreamer::instance().play(chat_id, track);
+        if (started) {
+            std::string msg = "▶️ **Now Playing:** " + track.title + "\n👤 **Requested by:** `" + std::to_string(user_id) + "`";
+            client_->send_message(chat_id, msg, msg_id);
         } else {
-            ctx.replyToMessageId = intField(m, "reply_to_message_id");
+            client_->send_message(chat_id, "❌ Error starting audio stream pipeline.", msg_id);
         }
-        if (m.contains("content") && m["content"].is_object()) {
-            const json& content = m["content"];
-            if (strField(content, "@type") == "messageText" &&
-                content.contains("text") && content["text"].is_object()) {
-                ctx.text = strField(content["text"], "text");
-            } else if (content.contains("caption") && content["caption"].is_object()) {
-                ctx.text = strField(content["caption"], "text");
-            }
-        }
-        ctx.command = parseCommand(ctx.text);
-        dispatchMessage(ctx);
-
-    } else if (type == "updateNewCallbackQuery") {
-        CallbackContext ctx;
-        ctx.client = client;
-        ctx.queryId = intField(j, "id");
-        ctx.fromUserId = intField(j, "sender_user_id");
-        ctx.chatId = intField(j, "chat_id");
-        ctx.messageId = intField(j, "message_id");
-        if (j.contains("payload") && j["payload"].is_object()) {
-            const json& p = j["payload"];
-            if (strField(p, "@type") == "callbackQueryPayloadData") {
-                ctx.data = utils::base64Decode(strField(p, "data"));
-            }
-        }
-        dispatchCallback(ctx);
+    } else {
+        // Enqueue track into MongoDB
+        database::MongoClient::instance().enqueue_track(chat_id, track);
+        auto q = database::MongoClient::instance().get_queue(chat_id);
+        std::string msg = "⏳ **Queued at position #" + std::to_string(q.size()) + ":** " + track.title;
+        client_->send_message(chat_id, msg, msg_id);
     }
 }
 
+void CommandDispatcher::handle_skip(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
+    auto current_state = audio::AudioStreamer::instance().get_state(chat_id);
+    if (current_state == audio::PlayerState::Idle) {
+        client_->send_message(chat_id, "ℹ️ Nothing is currently playing to skip.", msg_id);
+        return;
+    }
+
+    client_->send_message(chat_id, "⏭️ Skipped current track.", msg_id);
+    play_next_in_queue(chat_id);
 }
+
+void CommandDispatcher::handle_pause(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
+    if (audio::AudioStreamer::instance().pause(chat_id)) {
+        client_->send_message(chat_id, "⏸️ Playback paused.", msg_id);
+    } else {
+        client_->send_message(chat_id, "ℹ️ No active playback to pause.", msg_id);
+    }
+}
+
+void CommandDispatcher::handle_resume(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
+    if (audio::AudioStreamer::instance().resume(chat_id)) {
+        client_->send_message(chat_id, "▶️ Playback resumed.", msg_id);
+    } else {
+        client_->send_message(chat_id, "ℹ️ Playback is not paused.", msg_id);
+    }
+}
+
+void CommandDispatcher::handle_stop(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
+    database::MongoClient::instance().clear_queue(chat_id);
+    audio::AudioStreamer::instance().stop(chat_id);
+    SessionManager::instance().leave_voice_chat(chat_id);
+    client_->send_message(chat_id, "⏹️ Playback stopped and queue cleared. Assistant left voice chat.", msg_id);
+}
+
+void CommandDispatcher::handle_queue(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
+    auto current = audio::AudioStreamer::instance().get_current_track(chat_id);
+    auto queue = database::MongoClient::instance().get_queue(chat_id);
+
+    if (!current.has_value() && queue.empty()) {
+        client_->send_message(chat_id, "ℹ️ The queue is currently empty.", msg_id);
+        return;
+    }
+
+    std::ostringstream ss;
+    ss << "🎵 **Current Track & Queue:**\n\n";
+    if (current.has_value()) {
+        ss << "▶️ **Now Playing:** " << current->title << "\n\n";
+    }
+
+    if (!queue.empty()) {
+        ss << "📜 **Upcoming Tracks:**\n";
+        for (size_t i = 0; i < queue.size() && i < 10; ++i) {
+            ss << (i + 1) << ". " << queue[i].title << "\n";
+        }
+        if (queue.size() > 10) {
+            ss << "... and " << (queue.size() - 10) << " more tracks.\n";
+        }
+    }
+
+    client_->send_message(chat_id, ss.str(), msg_id);
+}
+
+void CommandDispatcher::handle_volume(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id, const std::string& arg) {
+    if (arg.empty()) {
+        client_->send_message(chat_id, "❗ Please provide a volume percentage (1 - 200).\nExample: `/volume 120`", msg_id);
+        return;
+    }
+
+    try {
+        int vol = std::stoi(arg);
+        if (vol < 1 || vol > 200) {
+            client_->send_message(chat_id, "⚠️ Volume must be between 1% and 200%.", msg_id);
+            return;
+        }
+
+        audio::AudioStreamer::instance().set_volume(chat_id, vol);
+        client_->send_message(chat_id, "🔊 Volume set to " + std::to_string(vol) + "%.", msg_id);
+    } catch (...) {
+        client_->send_message(chat_id, "⚠️ Invalid volume value.", msg_id);
+    }
+}
+
+void CommandDispatcher::handle_ping(int64_t chat_id, int64_t msg_id) {
+    int64_t now = get_current_epoch_ms();
+    int64_t uptime_sec = (now - start_time_) / 1000;
+
+    int hours = static_cast<int>(uptime_sec / 3600);
+    int mins = static_cast<int>((uptime_sec % 3600) / 60);
+    int secs = static_cast<int>(uptime_sec % 60);
+
+    std::ostringstream ss;
+    ss << "🏓 **Pong!**\n"
+       << "⏱️ **Uptime:** " << hours << "h " << mins << "m " << secs << "s\n"
+       << "🚀 **Engine:** AnonX C++20 High-Performance Core\n"
+       << "⚡ **Memory Efficient:** 1 vCPU / 1GB VPS Certified";
+
+    client_->send_message(chat_id, ss.str(), msg_id);
+}
+
+void CommandDispatcher::handle_help(int64_t chat_id, int64_t msg_id) {
+    std::string help_text =
+        "🎶 **AnonX-CPP Music Bot Commands**\n\n"
+        "• `/play <name or URL>` - Stream YouTube audio or direct audio link\n"
+        "• `/pause` - Pause currently playing stream\n"
+        "• `/resume` - Resume paused stream\n"
+        "• `/skip` - Skip to next song in queue\n"
+        "• `/stop` - Stop streaming, clear queue, and leave voice chat\n"
+        "• `/queue` - Display active song queue\n"
+        "• `/volume <1-200>` - Change audio playback volume\n"
+        "• `/ping` - Check bot status and uptime\n"
+        "• `/help` - Show this help menu";
+
+    client_->send_message(chat_id, help_text, msg_id);
+}
+
+void CommandDispatcher::play_next_in_queue(int64_t chat_id) {
+    auto next_track = database::MongoClient::instance().pop_next_track(chat_id);
+    if (next_track.has_value()) {
+        bool started = audio::AudioStreamer::instance().play(chat_id, *next_track);
+        if (started) {
+            std::string msg = "▶️ **Now Playing Next Track:** " + next_track->title;
+            client_->send_message(chat_id, msg);
+        } else {
+            // If failed, recurse to next
+            play_next_in_queue(chat_id);
+        }
+    } else {
+        // Queue finished
+        audio::AudioStreamer::instance().stop(chat_id);
+        SessionManager::instance().leave_voice_chat(chat_id);
+        client_->send_message(chat_id, "⏹️ Queue completed. Voice chat playback ended.");
+    }
+}
+
+} // namespace anonx::telegram
