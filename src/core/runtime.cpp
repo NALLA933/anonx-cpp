@@ -1,10 +1,10 @@
-#include "senpai/runtime.hpp"
+#include "senpai/core/runtime.hpp"
 
 #include <string>
 #include <utility>
 
-#include "senpai/logger.hpp"
-#include "senpai/plugins_router.hpp"
+#include "senpai/core/logger.hpp"
+#include "senpai/plugins/plugins_router.hpp"
 
 namespace senpai {
 namespace {
@@ -42,7 +42,7 @@ TelegramClient::Options botOptions(const Config& config,
 
 }
 
-Runtime::Runtime(const Config& config, VoiceTransport& transport, Options opts)
+Runtime::Runtime(const Config& config, NtgCallsTransport& transport, Options opts)
     : config_(config),
       opts_(std::move(opts)),
       db_(config.db_path),
@@ -53,10 +53,9 @@ Runtime::Runtime(const Config& config, VoiceTransport& transport, Options opts)
       sys_(),
       bot_(botOptions(config, opts_)),
       userbot_(static_cast<int>(config.api_id), config.api_hash),
-      api_(bot_),
       calls_(transport, queue_, cache_),
-      plugins_(Plugins::Deps{api_, db_, cache_, queue_, yt_, calls_, lang_, config_}),
-      admin_(AdminPlugins::Deps{api_, db_, cache_, calls_, sys_, lang_, config_}) {}
+      plugins_(Plugins::Deps{bot_, db_, cache_, queue_, yt_, calls_, lang_, config_}),
+      admin_(AdminPlugins::Deps{bot_, db_, cache_, calls_, sys_, lang_, config_}) {}
 
 Runtime::~Runtime() { stop(); }
 

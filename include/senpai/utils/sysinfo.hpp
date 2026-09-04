@@ -10,33 +10,32 @@ namespace senpai {
 class SystemInfo {
 public:
     SystemInfo();
-    virtual ~SystemInfo() = default;
+    ~SystemInfo() = default;
 
-    virtual double cpuPercent();
+    double cpuPercent();
 
-    virtual double       ramPercent();
-    virtual std::int64_t ramUsedMb();
-    virtual double       ramTotalGb();
+    double       ramPercent();
+    std::int64_t ramUsedMb();
+    double       ramTotalGb();
 
-    virtual double diskPercent();
-    virtual double diskUsedGb();
-    virtual double diskTotalGb();
+    double diskPercent();
+    double diskUsedGb();
+    double diskTotalGb();
 
-    virtual int         cores();
-    virtual std::string platform();
+    int         cores();
+    std::string platform();
 
-    virtual std::int64_t uptimeSeconds();
+    std::int64_t uptimeSeconds();
 
-    virtual std::string toolchainVersion();
-    virtual std::string telegramLibrary();
-    virtual std::string voiceLibrary();
+    std::string toolchainVersion();
+    std::string telegramLibrary();
+    std::string voiceLibrary();
 
     static std::string formatDuration(std::int64_t seconds);
 
     static std::string round1(double value);
 
 protected:
-
     static bool readCpuJiffies(std::uint64_t& total, std::uint64_t& idle);
 
 private:

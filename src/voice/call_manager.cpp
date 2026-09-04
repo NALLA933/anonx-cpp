@@ -1,10 +1,10 @@
-#include "senpai/call_manager.hpp"
+#include "senpai/voice/call_manager.hpp"
 
 #include <utility>
 
 namespace senpai {
 
-CallManager::CallManager(VoiceTransport& transport, Queue& queue, CacheManager& cache)
+CallManager::CallManager(NtgCallsTransport& transport, Queue& queue, CacheManager& cache)
     : transport_(transport), queue_(queue), cache_(cache) {
 
     transport_.setStreamEndHandler([this](std::int64_t chatId, StreamKind kind) {
@@ -16,21 +16,8 @@ CallManager::CallManager(VoiceTransport& transport, Queue& queue, CacheManager& 
     });
 }
 
-std::unique_lock<std::recursive_mutex> CallManager::lockFor(std::int64_t chatId) {
-    std::recursive_mutex* m = nullptr;
-    {
-        std::lock_guard<std::mutex> lk(locksMtx_);
-        auto& slot = locks_[chatId];
-        if (!slot)
-            slot = std::make_unique<std::recursive_mutex>();
-        m = slot.get();
-    }
-    return std::unique_lock<std::recursive_mutex>(*m);
-}
-
 void CallManager::ensureFilePath(MediaItem& item) {
     if (item.file_path.empty() && cb_.download) {
-
         auto path = cb_.download(item.id, item.video);
         if (path)
             item.file_path = *path;
@@ -39,12 +26,12 @@ void CallManager::ensureFilePath(MediaItem& item) {
 
 CallManager::PlayDecision
 CallManager::play(std::int64_t chatId, MediaItem item, bool force) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
 
     if (force) {
         queue_.forceAdd(chatId, item);
         ensureFilePath(item);
-        playMedia(chatId, item);
+        playMediaLocked(chatId, item);
         return {PlayOutcome::StartedNow, 0};
     }
 
@@ -54,17 +41,20 @@ CallManager::play(std::int64_t chatId, MediaItem item, bool force) {
         return {PlayOutcome::Queued, position};
 
     ensureFilePath(item);
-    playMedia(chatId, item);
+    playMediaLocked(chatId, item);
     return {PlayOutcome::StartedNow, position};
 }
 
 void CallManager::playMedia(std::int64_t chatId, MediaItem media, int seekTime) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
+    playMediaLocked(chatId, std::move(media), seekTime);
+}
 
+void CallManager::playMediaLocked(std::int64_t chatId, MediaItem media, int seekTime) {
     if (media.file_path.empty()) {
         if (cb_.onNotice)
             cb_.onNotice(chatId, Notice::ErrorNoFile);
-        playNext(chatId);
+        playNextLocked(chatId);
         return;
     }
 
@@ -79,7 +69,6 @@ void CallManager::playMedia(std::int64_t chatId, MediaItem media, int seekTime) 
 
     switch (res) {
         case PlayResult::Ok:
-
             if (seekTime == 0) {
                 media.time = 1;
                 cache_.addCall(chatId);
@@ -93,11 +82,11 @@ void CallManager::playMedia(std::int64_t chatId, MediaItem media, int seekTime) 
         case PlayResult::FileNotFound:
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorNoFile);
-            playNext(chatId);
+            playNextLocked(chatId);
             break;
 
         case PlayResult::NoActiveGroupCall:
-            stop(chatId);
+            stopLocked(chatId);
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorNoCall);
             break;
@@ -105,17 +94,17 @@ void CallManager::playMedia(std::int64_t chatId, MediaItem media, int seekTime) 
         case PlayResult::NoAudioSource:
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorNoAudio);
-            playNext(chatId);
+            playNextLocked(chatId);
             break;
 
         case PlayResult::ServerError:
-            stop(chatId);
+            stopLocked(chatId);
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorServer);
             break;
 
         case PlayResult::RtmpUnsupported:
-            stop(chatId);
+            stopLocked(chatId);
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorRtmp);
             break;
@@ -123,8 +112,11 @@ void CallManager::playMedia(std::int64_t chatId, MediaItem media, int seekTime) 
 }
 
 void CallManager::replay(std::int64_t chatId) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
+    replayLocked(chatId);
+}
 
+void CallManager::replayLocked(std::int64_t chatId) {
     if (!cache_.isActiveCall(chatId))
         return;
 
@@ -134,15 +126,18 @@ void CallManager::replay(std::int64_t chatId) {
 
     if (cb_.onNotice)
         cb_.onNotice(chatId, Notice::PlayAgain);
-    playMedia(chatId, *media);
+    playMediaLocked(chatId, *media);
 }
 
 void CallManager::playNext(std::int64_t chatId) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
+    playNextLocked(chatId);
+}
 
+void CallManager::playNextLocked(std::int64_t chatId) {
     if (int loop = cache_.getLoop(chatId); loop > 0) {
         cache_.setLoop(chatId, loop - 1);
-        replay(chatId);
+        replayLocked(chatId);
         return;
     }
 
@@ -156,7 +151,7 @@ void CallManager::playNext(std::int64_t chatId) {
     }
 
     if (!next) {
-        stop(chatId);
+        stopLocked(chatId);
         return;
     }
 
@@ -179,35 +174,38 @@ void CallManager::playNext(std::int64_t chatId) {
     }
 
     if (!next) {
-        stop(chatId);
+        stopLocked(chatId);
         return;
     }
 
     queue_.replaceCurrent(chatId, *next);
-    playMedia(chatId, *next);
+    playMediaLocked(chatId, *next);
 }
 
 bool CallManager::pause(std::int64_t chatId) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
     cache_.setPaused(chatId, true);
     const bool ok = transport_.pause(chatId);
     if (!ok)
-        stop(chatId);
+        stopLocked(chatId);
     return ok;
 }
 
 bool CallManager::resume(std::int64_t chatId) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
     cache_.setPaused(chatId, false);
     const bool ok = transport_.resume(chatId);
     if (!ok)
-        stop(chatId);
+        stopLocked(chatId);
     return ok;
 }
 
 void CallManager::stop(std::int64_t chatId) {
-    auto lk = lockFor(chatId);
+    std::lock_guard<std::mutex> lk(mutex_);
+    stopLocked(chatId);
+}
 
+void CallManager::stopLocked(std::int64_t chatId) {
     queue_.clear(chatId);
     cache_.removeCall(chatId);
     cache_.setLoop(chatId, 0);

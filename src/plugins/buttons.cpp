@@ -1,4 +1,4 @@
-#include "senpai/buttons.hpp"
+﻿#include "senpai/plugins/buttons.hpp"
 
 namespace senpai {
 namespace buttons {

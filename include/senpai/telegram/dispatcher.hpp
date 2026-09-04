@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-#include "senpai/telegram_client.hpp"
+#include "senpai/telegram/telegram_client.hpp"
 
 namespace senpai {
 
@@ -21,6 +21,7 @@ enum class ChatType { Private, Group };
 struct MessageContext {
     std::int64_t chatId = 0;
     ChatType chatType = ChatType::Group;
+    bool isPrivate = false;
     std::int64_t messageId = 0;
     std::int64_t fromUserId = 0;
     std::string text;
@@ -32,6 +33,7 @@ struct MessageContext {
     TelegramClient* client = nullptr;
 
     bool isCommand() const { return !command.empty(); }
+    bool hasReply() const { return replyToMessageId != 0; }
 
     std::int64_t reply(const std::string& html) const;
 };

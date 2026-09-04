@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "senpai/bot_api.hpp"
+#include "senpai/plugins/inline_keyboard.hpp"
 
 namespace senpai {
 namespace buttons {

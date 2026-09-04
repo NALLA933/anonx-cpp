@@ -1,4 +1,4 @@
-#include "senpai/database.hpp"
+﻿#include "senpai/database/database.hpp"
 
 #include <sqlite3.h>
 

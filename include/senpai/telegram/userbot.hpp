@@ -1,4 +1,4 @@
-#ifndef SENPAI_USERBOT_HPP
+﻿#ifndef SENPAI_USERBOT_HPP
 #define SENPAI_USERBOT_HPP
 
 #include <cstdint>
@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "senpai/telegram_client.hpp"
+#include "senpai/telegram/telegram_client.hpp"
 
 namespace senpai {
 

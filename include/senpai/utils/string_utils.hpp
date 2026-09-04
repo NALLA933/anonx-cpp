@@ -3,16 +3,18 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace senpai {
 namespace utils {
 
 inline bool isSpace(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+    return std::isspace(static_cast<unsigned char>(c)) != 0;
 }
 
 inline std::string toLower(std::string text) {
@@ -44,22 +46,23 @@ inline std::vector<std::string> splitWs(const std::string& text) {
 }
 
 inline bool parseI64(const std::string& text, std::int64_t& out) {
-    if (text.empty() || text.size() > 20) return false;
-    std::size_t i = 0;
-    bool negative = false;
-    if (text[0] == '-' || text[0] == '+') {
-        negative = text[0] == '-';
-        i = 1;
-        if (text.size() == 1) return false;
-    }
-    std::int64_t value = 0;
-    for (; i < text.size(); ++i) {
-        if (text[i] < '0' || text[i] > '9') return false;
-        if (value > (9223372036854775807LL - (text[i] - '0')) / 10) return false;
-        value = value * 10 + (text[i] - '0');
-    }
-    out = negative ? -value : value;
-    return true;
+    if (text.empty()) return false;
+    const char* first = text.data();
+    if (text[0] == '+') ++first;
+    const char* last = text.data() + text.size();
+    if (first == last) return false;
+    auto [ptr, ec] = std::from_chars(first, last, out);
+    return ec == std::errc{} && ptr == last;
+}
+
+inline bool parseU32(const std::string& text, long& out) {
+    if (text.empty() || text[0] == '-') return false;
+    const char* first = text.data();
+    if (text[0] == '+') ++first;
+    const char* last = text.data() + text.size();
+    if (first == last) return false;
+    auto [ptr, ec] = std::from_chars(first, last, out);
+    return ec == std::errc{} && ptr == last;
 }
 
 inline std::string htmlEscape(const std::string& text) {
@@ -71,6 +74,31 @@ inline std::string htmlEscape(const std::string& text) {
             case '<': out += "&lt;";  break;
             case '>': out += "&gt;";  break;
             default:  out.push_back(c);
+        }
+    }
+    return out;
+}
+
+inline std::string base64Decode(const std::string& in) {
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::string out;
+    int buf = 0, bits = 0;
+    for (char c : in) {
+        if (c == '=' || isSpace(c)) continue;
+        int v = val(c);
+        if (v < 0) continue;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<char>((buf >> bits) & 0xFF));
         }
     }
     return out;

@@ -6,24 +6,25 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "senpai/bot_api.hpp"
-#include "senpai/buttons.hpp"
-#include "senpai/cache_manager.hpp"
-#include "senpai/call_manager.hpp"
-#include "senpai/config.hpp"
-#include "senpai/database.hpp"
-#include "senpai/lang.hpp"
-#include "senpai/plugins.hpp"
-#include "senpai/sysinfo.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/database/cache_manager.hpp"
+#include "senpai/database/database.hpp"
+#include "senpai/plugins/buttons.hpp"
+#include "senpai/plugins/lang.hpp"
+#include "senpai/telegram/dispatcher.hpp"
+#include "senpai/telegram/telegram_client.hpp"
+#include "senpai/utils/sysinfo.hpp"
+#include "senpai/voice/call_manager.hpp"
 
 namespace senpai {
 
 class AdminPlugins {
 public:
     struct Deps {
-        BotApi&         api;
+        TelegramClient& api;
         Database&       db;
         CacheManager&   cache;
         CallManager&    calls;
@@ -34,31 +35,31 @@ public:
 
     explicit AdminPlugins(const Deps& deps);
 
-    void onAuth(const CommandEvent& ev);
-    void onAuthList(const CommandEvent& ev);
+    void onAuth(const MessageContext& ev);
+    void onAuthList(const MessageContext& ev);
 
-    void onBlacklist(const CommandEvent& ev);
+    void onBlacklist(const MessageContext& ev);
 
-    void onGcast(const CommandEvent& ev);
+    void onGcast(const MessageContext& ev);
 
-    void onSudo(const CommandEvent& ev);
-    void onSudoList(const CommandEvent& ev);
+    void onSudo(const MessageContext& ev);
+    void onSudoList(const MessageContext& ev);
 
-    void onLang(const CommandEvent& ev);
+    void onLang(const MessageContext& ev);
 
-    void onPing(const CommandEvent& ev);
-    void onStats(const CommandEvent& ev);
-    void onActiveVc(const CommandEvent& ev);
+    void onPing(const MessageContext& ev);
+    void onStats(const MessageContext& ev);
+    void onActiveVc(const MessageContext& ev);
 
-    void onStart(const CommandEvent& ev);
-    void onHelp(const CommandEvent& ev);
-    void onSettings(const CommandEvent& ev);
+    void onStart(const MessageContext& ev);
+    void onHelp(const MessageContext& ev);
+    void onSettings(const MessageContext& ev);
 
-    void onLogger(const CommandEvent& ev);
+    void onLogger(const MessageContext& ev);
 
-    void onSeen(const CommandEvent& ev);
+    void onSeen(const MessageContext& ev);
 
-    void onMenu(const ButtonEvent& ev);
+    void onMenu(const CallbackContext& ev);
 
     static std::vector<std::string> authCommands();
     static std::vector<std::string> authListCommands();
@@ -85,7 +86,7 @@ private:
 
     buttons::MenuText menuText(const LangView& L) const;
 
-    std::string startCard(const LangView& L, const CommandEvent& ev) const;
+    std::string startCard(const LangView& L, const MessageContext& ev) const;
     std::string helpBody(const LangView& L) const;
     std::string settingsCard(const LangView& L) const;
     InlineKeyboard startKeyboard(const LangView& L, bool isPrivate) const;
@@ -100,13 +101,13 @@ private:
     std::int64_t say(std::int64_t chatId, const std::string& html,
                      const InlineKeyboard& kb = {});
 
-    std::int64_t resolveTarget(const CommandEvent& ev) const;
+    std::int64_t resolveTarget(const MessageContext& ev) const;
 
     bool toLogGroup(const std::string& html);
 
-    bool mayConfigure(const CommandEvent& ev) const;
+    bool mayConfigure(const MessageContext& ev) const;
 
-    BotApi&         api_;
+    TelegramClient& api_;
     Database&       db_;
     CacheManager&   cache_;
     CallManager&    calls_;
@@ -116,8 +117,8 @@ private:
 
     std::atomic<bool> broadcasting_{false};
 
-    mutable std::mutex                   mutex_;
-    std::map<std::int64_t, std::int64_t>  status_;
+    mutable std::mutex                  mutex_;
+    std::map<std::int64_t, std::int64_t> status_;
 };
 
 }

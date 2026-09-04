@@ -1,10 +1,10 @@
-#include "senpai/userbot.hpp"
+﻿#include "senpai/telegram/userbot.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <iostream>
 
-#include "senpai/logger.hpp"
+#include "senpai/core/logger.hpp"
 
 namespace senpai {
 namespace {

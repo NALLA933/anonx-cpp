@@ -66,10 +66,10 @@ sudo apt-get install -y cmake g++ make ffmpeg libsqlite3-dev nlohmann-json3-dev 
 
 ### 2. Configure Environment (`.env`)
 
-Copy `sample.env` to `.env` and fill in your credentials:
+Copy `.env.sample` to `.env` and fill in your credentials:
 
 ```bash
-cp sample.env .env
+cp .env.sample .env
 nano .env
 ```
 
@@ -172,7 +172,7 @@ Unlike legacy Python music bots, TDLib does **not** use Pyrogram base64 string s
 senpai-cpp/
 ├── CMakeLists.txt             # Build system configuration
 ├── start.sh                   # 1-click installer and interactive runner
-├── sample.env                 # Template environment variables
+├── .env.sample                # Template environment variables
 ├── include/senpai/            # Public C++ headers
 │   ├── config.hpp             # Configuration loader & validation
 │   ├── database.hpp           # Embedded SQLite data layer

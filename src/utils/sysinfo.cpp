@@ -1,4 +1,4 @@
-#include "senpai/sysinfo.hpp"
+﻿#include "senpai/utils/sysinfo.hpp"
 
 #include <sys/statvfs.h>
 #include <sys/utsname.h>

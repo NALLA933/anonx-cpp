@@ -1,4 +1,4 @@
-#include "senpai/lang.hpp"
+﻿#include "senpai/plugins/lang.hpp"
 
 #include <algorithm>
 #include <cctype>

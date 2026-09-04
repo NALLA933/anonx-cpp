@@ -7,20 +7,17 @@
 #include <string>
 #include <vector>
 
-#include "senpai/admin_plugins.hpp"
-#include "senpai/cache_manager.hpp"
-#include "senpai/config.hpp"
-#include "senpai/database.hpp"
-#include "senpai/dispatcher.hpp"
-#include "senpai/lang.hpp"
-#include "senpai/plugins.hpp"
-#include "senpai/queue.hpp"
-#include "senpai/sysinfo.hpp"
-#include "senpai/telegram_bot_api.hpp"
-#include "senpai/telegram_client.hpp"
-#include "senpai/userbot.hpp"
-#include "senpai/voice_transport.hpp"
-#include "senpai/youtube.hpp"
+#include "senpai/plugins/admin_plugins.hpp"
+#include "senpai/database/cache_manager.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/database/database.hpp"
+#include "senpai/telegram/dispatcher.hpp"
+#include "senpai/plugins/lang.hpp"
+#include "senpai/plugins/plugins.hpp"
+#include "senpai/voice/queue.hpp"
+#include "senpai/utils/sysinfo.hpp"
+#include "senpai/voice/ntgcalls_transport.hpp"
+#include "senpai/utils/youtube.hpp"
 
 namespace senpai {
 
@@ -39,7 +36,7 @@ class Runtime {
 public:
     using Options = RuntimeOptions;
 
-    Runtime(const Config& config, VoiceTransport& transport, Options opts = {});
+    Runtime(const Config& config, NtgCallsTransport& transport, Options opts = {});
     ~Runtime();
 
     Runtime(const Runtime&)            = delete;
@@ -61,7 +58,7 @@ public:
     Dispatcher&     dispatcher() { return *dispatcher_; }
     TelegramClient& bot()        { return bot_; }
     Userbot&        userbot()    { return userbot_; }
-    BotApi&         api()        { return api_; }
+    TelegramClient& api()        { return bot_; }
 
 private:
     void announceStartup();
@@ -78,7 +75,6 @@ private:
 
     TelegramClient bot_;
     Userbot        userbot_;
-    TelegramBotApi api_;
 
     CallManager  calls_;
     Plugins      plugins_;

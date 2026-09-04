@@ -1,36 +1,6 @@
-#include "senpai/plugins_router.hpp"
-
-#include <algorithm>
-#include <cctype>
+#include "senpai/plugins/plugins_router.hpp"
 
 namespace senpai {
-
-CommandEvent toCommandEvent(const MessageContext& ctx) {
-    CommandEvent ev;
-    ev.chatId     = ctx.chatId;
-    ev.messageId  = ctx.messageId;
-    ev.fromUserId = ctx.fromUserId;
-    ev.isPrivate  = ctx.chatType == ChatType::Private;
-    ev.command    = ctx.command;
-    ev.replyToMessageId = ctx.replyToMessageId;
-    if (!ev.command.empty()) {
-        std::string& name = ev.command[0];
-        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-    }
-    return ev;
-}
-
-ButtonEvent toButtonEvent(const CallbackContext& ctx) {
-    ButtonEvent ev;
-    ev.chatId     = ctx.chatId;
-    ev.messageId  = ctx.messageId;
-    ev.fromUserId = ctx.fromUserId;
-    ev.queryId    = ctx.queryId;
-    ev.data       = ctx.data;
-    return ev;
-}
 
 void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
                     Database& db) {
@@ -46,24 +16,24 @@ void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
     const Filter inGroup = filters::groupChat() && allowed;
 
     disp.onMessage(filters::command(Plugins::playCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onPlay(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onPlay(m); });
     disp.onMessage(filters::command(Plugins::skipCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onSkip(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onSkip(m); });
     disp.onMessage(filters::command(Plugins::pauseCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onPause(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onPause(m); });
     disp.onMessage(filters::command(Plugins::resumeCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onResume(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onResume(m); });
     disp.onMessage(filters::command(Plugins::stopCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onStop(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onStop(m); });
     disp.onMessage(filters::command(Plugins::loopCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onLoop(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onLoop(m); });
     disp.onMessage(filters::command(Plugins::queueCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onQueue(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onQueue(m); });
     disp.onMessage(filters::command(Plugins::seekCommands()) && inGroup,
-                   [&plugins](MessageContext& m) { plugins.onSeek(toCommandEvent(m)); });
+                   [&plugins](MessageContext& m) { plugins.onSeek(m); });
 
-    const auto adminHandler = [&admin](void (AdminPlugins::*fn)(const CommandEvent&)) {
-        return [&admin, fn](MessageContext& m) { (admin.*fn)(toCommandEvent(m)); };
+    const auto adminHandler = [&admin](void (AdminPlugins::*fn)(const MessageContext&)) {
+        return [&admin, fn](MessageContext& m) { (admin.*fn)(m); };
     };
 
     disp.onMessage(filters::command(AdminPlugins::authCommands()) && inGroup,
@@ -96,14 +66,14 @@ void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
     disp.onMessage(filters::command(AdminPlugins::loggerCommands()) && allowed,
                    adminHandler(&AdminPlugins::onLogger));
 
-    disp.onEveryMessage([&admin](MessageContext& m) { admin.onSeen(toCommandEvent(m)); });
+    disp.onEveryMessage([&admin](MessageContext& m) { admin.onSeen(m); });
 
     disp.onCallback(filters::callbackDataPrefix("controls"),
-                    [&plugins](CallbackContext& c) { plugins.onControls(toButtonEvent(c)); });
+                    [&plugins](CallbackContext& c) { plugins.onControls(c); });
 
     for (const char* prefix : {"help", "lang", "settings", "start", "close"}) {
         disp.onCallback(filters::callbackDataPrefix(prefix),
-                        [&admin](CallbackContext& c) { admin.onMenu(toButtonEvent(c)); });
+                        [&admin](CallbackContext& c) { admin.onMenu(c); });
     }
 }
 

@@ -1,4 +1,4 @@
-#include "senpai/plugins.hpp"
+﻿#include "senpai/plugins/plugins.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -6,9 +6,9 @@
 #include <sstream>
 #include <utility>
 
-#include "senpai/buttons.hpp"
-#include "senpai/guards.hpp"
-#include "senpai/string_utils.hpp"
+#include "senpai/plugins/buttons.hpp"
+#include "senpai/plugins/guards.hpp"
+#include "senpai/utils/string_utils.hpp"
 
 namespace senpai {
 namespace {
@@ -16,19 +16,8 @@ namespace {
 using utils::splitWs;
 using utils::toLower;
 using utils::parseI64;
-
-bool parseU32(const std::string& text, long& out) {
-    if (text.empty() || text.size() > 9)
-        return false;
-    long value = 0;
-    for (char c : text) {
-        if (c < '0' || c > '9')
-            return false;
-        value = value * 10 + (c - '0');
-    }
-    out = value;
-    return true;
-}
+using utils::parseU32;
+using utils::htmlEscape;
 
 bool isPlaylistUrl(const std::string& url) {
     return url.find("list=") != std::string::npos ||
@@ -47,10 +36,6 @@ Plugins::Plugins(const Deps& deps)
 
 bool Plugins::isSupergroupId(std::int64_t chatId) {
     return chatId <= -1000000000000LL;
-}
-
-std::string Plugins::htmlEscape(const std::string& text) {
-    return utils::htmlEscape(text);
 }
 
 LangView Plugins::tr(std::int64_t chatId) const {
@@ -169,7 +154,7 @@ std::vector<std::string> Plugins::loopCommands()   { return {"loop"}; }
 std::vector<std::string> Plugins::queueCommands()  { return {"queue"}; }
 std::vector<std::string> Plugins::seekCommands()   { return {"seek", "seekback"}; }
 
-void Plugins::onPlay(const CommandEvent& ev) {
+void Plugins::onPlay(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
 
     guards::PlayRequest req;
@@ -280,7 +265,7 @@ void Plugins::onPlay(const CommandEvent& ev) {
         api_.deleteMessage(ev.chatId, ev.messageId);
 }
 
-bool Plugins::requireControl(const CommandEvent& ev, const LangView& L) {
+bool Plugins::requireControl(const MessageContext& ev, const LangView& L) {
     if (!guards::canManageVc(api_, db_, ev.chatId, ev.fromUserId)) {
         api_.sendMessage(ev.chatId, L["user_not_admin"]);
         return false;
@@ -292,7 +277,7 @@ bool Plugins::requireControl(const CommandEvent& ev, const LangView& L) {
     return true;
 }
 
-void Plugins::onSkip(const CommandEvent& ev) {
+void Plugins::onSkip(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!requireControl(ev, L))
         return;
@@ -302,7 +287,7 @@ void Plugins::onSkip(const CommandEvent& ev) {
     calls_.playNext(ev.chatId);
 }
 
-void Plugins::onPause(const CommandEvent& ev) {
+void Plugins::onPause(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!requireControl(ev, L))
         return;
@@ -318,7 +303,7 @@ void Plugins::onPause(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("play_paused", api_.userMention(ev.fromUserId)));
 }
 
-void Plugins::onResume(const CommandEvent& ev) {
+void Plugins::onResume(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!requireControl(ev, L))
         return;
@@ -333,7 +318,7 @@ void Plugins::onResume(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("play_resumed", api_.userMention(ev.fromUserId)));
 }
 
-void Plugins::onStop(const CommandEvent& ev) {
+void Plugins::onStop(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!requireControl(ev, L))
         return;
@@ -341,7 +326,7 @@ void Plugins::onStop(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("play_stopped", api_.userMention(ev.fromUserId)));
 }
 
-void Plugins::onLoop(const CommandEvent& ev) {
+void Plugins::onLoop(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!requireControl(ev, L))
         return;
@@ -367,7 +352,7 @@ void Plugins::onLoop(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("loop_set", count));
 }
 
-void Plugins::onQueue(const CommandEvent& ev) {
+void Plugins::onQueue(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
 
     if (!cache_.isActiveCall(ev.chatId) || queue_.empty(ev.chatId)) {
@@ -389,7 +374,7 @@ void Plugins::onQueue(const CommandEvent& ev) {
         buttons::queueMarkup(ev.chatId, playing ? L["playing"] : L["paused"], playing));
 }
 
-void Plugins::onSeek(const CommandEvent& ev) {
+void Plugins::onSeek(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("seek") : ev.command[0];
     const bool backward = name == "seekback";
@@ -436,7 +421,7 @@ void Plugins::onSeek(const CommandEvent& ev) {
                          target, api_.userMention(ev.fromUserId)));
 }
 
-void Plugins::onControls(const ButtonEvent& ev) {
+void Plugins::onControls(const CallbackContext& ev) {
 
     const std::vector<std::string> parts = splitWs(ev.data);
     std::int64_t chatId = 0;

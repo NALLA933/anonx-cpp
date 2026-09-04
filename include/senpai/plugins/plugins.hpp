@@ -7,41 +7,22 @@
 #include <string>
 #include <vector>
 
-#include "senpai/bot_api.hpp"
-#include "senpai/cache_manager.hpp"
-#include "senpai/call_manager.hpp"
-#include "senpai/config.hpp"
-#include "senpai/database.hpp"
-#include "senpai/lang.hpp"
-#include "senpai/queue.hpp"
-#include "senpai/youtube.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/database/cache_manager.hpp"
+#include "senpai/database/database.hpp"
+#include "senpai/plugins/lang.hpp"
+#include "senpai/telegram/dispatcher.hpp"
+#include "senpai/telegram/telegram_client.hpp"
+#include "senpai/utils/youtube.hpp"
+#include "senpai/voice/call_manager.hpp"
+#include "senpai/voice/queue.hpp"
 
 namespace senpai {
-
-struct CommandEvent {
-    std::int64_t chatId = 0;
-    std::int64_t messageId = 0;
-    std::int64_t fromUserId = 0;
-    bool         isPrivate = false;
-    std::vector<std::string> command;
-
-    std::int64_t replyToMessageId = 0;
-
-    bool hasReply() const { return replyToMessageId != 0; }
-};
-
-struct ButtonEvent {
-    std::int64_t chatId = 0;
-    std::int64_t messageId = 0;
-    std::int64_t fromUserId = 0;
-    std::int64_t queryId = 0;
-    std::string  data;
-};
 
 class Plugins {
 public:
     struct Deps {
-        BotApi&         api;
+        TelegramClient& api;
         Database&       db;
         CacheManager&   cache;
         Queue&          queue;
@@ -57,16 +38,16 @@ public:
 
     CallManager::Callbacks callbacks();
 
-    void onPlay(const CommandEvent& ev);
-    void onSkip(const CommandEvent& ev);
-    void onPause(const CommandEvent& ev);
-    void onResume(const CommandEvent& ev);
-    void onStop(const CommandEvent& ev);
-    void onLoop(const CommandEvent& ev);
-    void onQueue(const CommandEvent& ev);
-    void onSeek(const CommandEvent& ev);
+    void onPlay(const MessageContext& ev);
+    void onSkip(const MessageContext& ev);
+    void onPause(const MessageContext& ev);
+    void onResume(const MessageContext& ev);
+    void onStop(const MessageContext& ev);
+    void onLoop(const MessageContext& ev);
+    void onQueue(const MessageContext& ev);
+    void onSeek(const MessageContext& ev);
 
-    void onControls(const ButtonEvent& ev);
+    void onControls(const CallbackContext& ev);
 
     static std::vector<std::string> playCommands();
     static std::vector<std::string> skipCommands();
@@ -79,8 +60,6 @@ public:
 
     static bool isSupergroupId(std::int64_t chatId);
 
-    static std::string htmlEscape(const std::string& text);
-
 private:
     LangView tr(std::int64_t chatId) const;
 
@@ -90,7 +69,7 @@ private:
     std::int64_t say(std::int64_t chatId, const std::string& html,
                      const InlineKeyboard& kb = {});
 
-    bool requireControl(const CommandEvent& ev, const LangView& L);
+    bool requireControl(const MessageContext& ev, const LangView& L);
 
     std::string nowPlayingCard(const LangView& L, const MediaItem& item) const;
     std::string queuedCard(const LangView& L, const MediaItem& item, int position) const;
@@ -98,7 +77,7 @@ private:
     std::int64_t renderNowPlaying(std::int64_t chatId, const MediaItem& item);
     void         renderNotice(std::int64_t chatId, CallManager::Notice notice);
 
-    BotApi&         api_;
+    TelegramClient& api_;
     Database&       db_;
     CacheManager&   cache_;
     Queue&          queue_;
@@ -107,8 +86,8 @@ private:
     const Language& lang_;
     const Config&   config_;
 
-    mutable std::mutex                    mutex_;
-    std::map<std::int64_t, std::int64_t>  status_;
+    mutable std::mutex                   mutex_;
+    std::map<std::int64_t, std::int64_t> status_;
 };
 
 }

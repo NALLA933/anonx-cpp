@@ -7,21 +7,20 @@
 
 #include <sys/stat.h>
 
-#include "senpai/app.hpp"
-#include "senpai/version.hpp"
+#include "senpai/core/version.hpp"
 
 #if defined(SENPAI_WITH_TDLIB)
 #include <chrono>
 #include <memory>
 #include <thread>
 
-#include "senpai/config.hpp"
-#include "senpai/logger.hpp"
-#include "senpai/runtime.hpp"
-#include "senpai/userbot.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/core/logger.hpp"
+#include "senpai/core/runtime.hpp"
+#include "senpai/telegram/userbot.hpp"
 
-#include "senpai/voice_signaling.hpp"
-#include "senpai/ntgcalls_transport.hpp"
+#include "senpai/voice/voice_signaling.hpp"
+#include "senpai/voice/ntgcalls_transport.hpp"
 #endif
 
 namespace {
@@ -123,33 +122,19 @@ int runBot(const std::string& envFile) {
     senpai::LogSink::instance().close();
     return 0;
 }
-
-#else
-
-int runSkeleton(const std::string& envFile) {
-    senpai::App app(envFile);
-    app.log().warning("built without TDLib (-DSENPAI_WITH_TDLIB=ON) — running the "
-                      "data-layer skeleton only; no Telegram connection");
-    app.boot();
-    app.run();
-    return 0;
-}
-
-#endif
-
-}
-
-int main(int argc, char** argv) {
-    const std::string envFile = (argc > 1) ? argv[1] : ".env";
-    try {
-
-        std::setvbuf(stdout, nullptr, _IOLBF, 0);
-#if defined(SENPAI_WITH_TDLIB)
-        return runBot(envFile);
-#else
-        return runSkeleton(envFile);
-#endif
-    } catch (const std::exception& ex) {
+ 
+ int main(int argc, char** argv) {
+     const std::string envFile = (argc > 1) ? argv[1] : ".env";
+     try {
+         std::setvbuf(stdout, nullptr, _IOLBF, 0);
+ #if defined(SENPAI_WITH_TDLIB)
+         return runBot(envFile);
+ #else
+         (void)envFile;
+         std::cerr << "SenpaiMusic C++ was built without TDLib (-DSENPAI_WITH_TDLIB=ON). Cannot run.\n";
+         return 1;
+ #endif
+     } catch (const std::exception& ex) {
         std::cerr << "fatal: " << ex.what() << "\n";
         return 1;
     }

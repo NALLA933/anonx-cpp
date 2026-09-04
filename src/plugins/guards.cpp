@@ -1,9 +1,9 @@
-#include "senpai/guards.hpp"
+#include "senpai/plugins/guards.hpp"
 
 namespace senpai {
 namespace guards {
 
-bool isAdmin(BotApi& api, std::int64_t chatId, std::int64_t userId) {
+bool isAdmin(TelegramClient& api, std::int64_t chatId, std::int64_t userId) {
     const std::string status = api.getChatMemberStatus(chatId, userId);
     return status == "chatMemberStatusAdministrator" ||
            status == "chatMemberStatusCreator";
@@ -13,7 +13,7 @@ bool isSudo(Database& db, const Config& config, std::int64_t userId) {
     return userId == config.owner_id || db.isSudo(userId);
 }
 
-bool canManageVc(BotApi& api, Database& db, std::int64_t chatId, std::int64_t userId) {
+bool canManageVc(TelegramClient& api, Database& db, std::int64_t chatId, std::int64_t userId) {
 
     if (db.isSudo(userId))
         return true;
@@ -22,7 +22,7 @@ bool canManageVc(BotApi& api, Database& db, std::int64_t chatId, std::int64_t us
     return isAdmin(api, chatId, userId);
 }
 
-bool adminCheck(BotApi& api, Database& db, bool isPrivate,
+bool adminCheck(TelegramClient& api, Database& db, bool isPrivate,
                 std::int64_t chatId, std::int64_t userId) {
     if (isPrivate)
         return true;
@@ -52,7 +52,7 @@ std::string resolveUrl(const std::vector<std::string>& command) {
     return "";
 }
 
-PlayPreflight runPlayPreflight(BotApi& api, Database& db, Queue& queue,
+PlayPreflight runPlayPreflight(TelegramClient& api, Database& db, Queue& queue,
                                YouTube& yt, const Config& config,
                                const PlayRequest& req) {
     PlayPreflight r;

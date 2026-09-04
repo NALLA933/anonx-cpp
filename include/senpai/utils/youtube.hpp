@@ -29,18 +29,17 @@ struct Track {
 class YouTube {
 public:
     YouTube();
+    ~YouTube() = default;
 
-    virtual ~YouTube() = default;
+    std::optional<Track> search(const std::string& query,
+                                std::int64_t messageId = 0,
+                                bool video = false);
 
-    virtual std::optional<Track> search(const std::string& query,
-                                        std::int64_t messageId = 0,
+    std::vector<Track> playlist(const std::string& url, int limit,
+                                const std::string& user = "", bool video = false);
+
+    std::optional<std::string> download(const std::string& videoId,
                                         bool video = false);
-
-    virtual std::vector<Track> playlist(const std::string& url, int limit,
-                                        const std::string& user = "", bool video = false);
-
-    virtual std::optional<std::string> download(const std::string& videoId,
-                                                bool video = false);
 
     bool valid(const std::string& url) const;
     bool invalid(const std::string& url) const;
@@ -54,7 +53,6 @@ public:
     static constexpr const char* kDownloadsDir = "downloads";
 
 private:
-
     std::string pickCookie();
 
     std::string  base_ = "https://www.youtube.com/watch?v=";

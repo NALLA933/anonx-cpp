@@ -1,4 +1,4 @@
-#ifndef SENPAI_QUEUE_HPP
+﻿#ifndef SENPAI_QUEUE_HPP
 #define SENPAI_QUEUE_HPP
 
 #include <cstddef>
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "senpai/youtube.hpp"
+#include "senpai/utils/youtube.hpp"
 
 namespace senpai {
 

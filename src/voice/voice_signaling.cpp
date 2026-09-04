@@ -1,4 +1,4 @@
-#include "senpai/voice_signaling.hpp"
+﻿#include "senpai/voice/voice_signaling.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "senpai/logger.hpp"
+#include "senpai/core/logger.hpp"
 
 namespace senpai {
 namespace {

@@ -1,5 +1,5 @@
-#include "senpai/config.hpp"
-#include "senpai/string_utils.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/utils/string_utils.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -12,6 +12,7 @@ namespace senpai {
 namespace {
 
 using utils::trim;
+using utils::toLower;
 
 std::string stripQuotes(const std::string& s) {
     if (s.size() >= 2) {
@@ -21,12 +22,6 @@ std::string stripQuotes(const std::string& s) {
             return s.substr(1, s.size() - 2);
         }
     }
-    return s;
-}
-
-std::string toLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
 }
 

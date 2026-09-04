@@ -1,4 +1,4 @@
-#include "senpai/telegram_client.hpp"
+#include "senpai/telegram/telegram_client.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -13,7 +13,8 @@
 
 #include <sys/stat.h>
 
-#include "senpai/logger.hpp"
+#include "senpai/core/logger.hpp"
+#include "senpai/utils/string_utils.hpp"
 
 namespace senpai {
 namespace {
@@ -109,11 +110,6 @@ json toReplyMarkup(const InlineKeyboard& kb) {
                 case InlineButton::Kind::Url:
                     type["@type"] = "inlineKeyboardButtonTypeUrl";
                     type["url"] = b.url;
-                    break;
-                case InlineButton::Kind::Copy:
-
-                    type["@type"] = "inlineKeyboardButtonTypeCopyText";
-                    type["text"] = b.copy;
                     break;
                 case InlineButton::Kind::Callback:
                 default:
@@ -889,6 +885,14 @@ std::string TelegramClient::getChatMemberStatus(std::int64_t chatId, std::int64_
         return strField(j["status"], "@type");
     }
     return std::string();
+}
+
+std::string TelegramClient::userMention(std::int64_t userId) {
+    const UserInfo info = getUser(userId);
+    if (!info.found || info.firstName.empty()) {
+        return "<a href=\"tg://user?id=" + std::to_string(userId) + "\">" + std::to_string(userId) + "</a>";
+    }
+    return "<a href=\"tg://user?id=" + std::to_string(userId) + "\">" + utils::htmlEscape(info.firstName) + "</a>";
 }
 
 }

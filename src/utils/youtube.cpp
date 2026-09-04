@@ -1,6 +1,6 @@
-#include "senpai/youtube.hpp"
+﻿#include "senpai/utils/youtube.hpp"
 
-#include "senpai/logger.hpp"
+#include "senpai/core/logger.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -1,72 +1,18 @@
-#include "senpai/dispatcher.hpp"
+#include "senpai/telegram/dispatcher.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
 
-#include "senpai/string_utils.hpp"
+#include "senpai/utils/string_utils.hpp"
 
 namespace senpai {
 namespace {
 
 using nlohmann::json;
 
-inline std::string lower(const std::string& s) { return utils::toLower(s); }
-inline bool isSpace(char c) { return utils::isSpace(c); }
-inline std::vector<std::string> tokenize(const std::string& s) { return utils::splitWs(s); }
-
 std::string strField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key) && j[key].is_string()) {
-        return j[key].get<std::string>();
-    }
-    return std::string();
-}
-
-std::int64_t intField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key)) {
-        const auto& val = j[key];
-        if (val.is_number()) {
-            return val.get<std::int64_t>();
-        }
-        if (val.is_string()) {
-            try {
-                return std::stoll(val.get<std::string>());
-            } catch (...) {
-                return 0;
-            }
-        }
-    }
-    return 0;
-}
-
-
-std::string base64Decode(const std::string& in) {
-    auto val = [](char c) -> int {
-        if (c >= 'A' && c <= 'Z') return c - 'A';
-        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-        if (c >= '0' && c <= '9') return c - '0' + 52;
-        if (c == '+') return 62;
-        if (c == '/') return 63;
-        return -1;
-    };
-    std::string out;
-    int buf = 0, bits = 0;
-    for (char c : in) {
-        if (c == '=' || isSpace(c)) continue;
-        int v = val(c);
-        if (v < 0) continue;
-        buf = (buf << 6) | v;
-        bits += 6;
-        if (bits >= 8) {
-            bits -= 8;
-            out.push_back(static_cast<char>((buf >> bits) & 0xFF));
-        }
-    }
-    return out;
-}
-
-}
 
 std::int64_t MessageContext::reply(const std::string& html) const {
     return client ? client->sendMessage(chatId, html) : 0;
@@ -85,10 +31,10 @@ void CallbackContext::answer(const std::string& text, bool alert) const {
 namespace filters {
 
 Filter command(std::vector<std::string> names) {
-    for (auto& n : names) n = lower(n);
+    for (auto& n : names) n = utils::toLower(n);
     return Filter([names](const MessageContext& c) {
         if (c.command.empty()) return false;
-        const std::string name = lower(c.command[0]);
+        const std::string name = utils::toLower(c.command[0]);
         for (const auto& n : names) {
             if (n == name) return true;
         }
@@ -262,7 +208,7 @@ std::vector<std::string> Dispatcher::parseCommand(const std::string& text) const
     }
     if (!okPrefix) return out;
 
-    std::vector<std::string> tokens = tokenize(text);
+    std::vector<std::string> tokens = utils::splitWs(text);
     if (tokens.empty()) return out;
 
     std::string head = tokens[0].substr(1);
@@ -271,7 +217,7 @@ std::vector<std::string> Dispatcher::parseCommand(const std::string& text) const
         const std::string uname = head.substr(at + 1);
         head = head.substr(0, at);
 
-        if (!uname.empty() && !botUsername_.empty() && lower(uname) != botUsername_) {
+        if (!uname.empty() && !botUsername_.empty() && utils::toLower(uname) != botUsername_) {
             return {};
         }
     }
@@ -335,6 +281,7 @@ void Dispatcher::handleUpdate(const std::string& updateJson) {
         ctx.client = client;
         ctx.chatId = intField(m, "chat_id");
         ctx.chatType = ctx.chatId >= 0 ? ChatType::Private : ChatType::Group;
+        ctx.isPrivate = ctx.chatId >= 0;
         ctx.messageId = intField(m, "id");
 
         if (m.contains("sender_id") && m["sender_id"].is_object()) {
@@ -376,7 +323,7 @@ void Dispatcher::handleUpdate(const std::string& updateJson) {
         if (j.contains("payload") && j["payload"].is_object()) {
             const json& p = j["payload"];
             if (strField(p, "@type") == "callbackQueryPayloadData") {
-                ctx.data = base64Decode(strField(p, "data"));
+                ctx.data = utils::base64Decode(strField(p, "data"));
             }
         }
         dispatchCallback(ctx);

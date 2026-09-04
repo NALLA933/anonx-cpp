@@ -1,10 +1,10 @@
-#ifndef SENPAI_VOICE_SIGNALING_HPP
+﻿#ifndef SENPAI_VOICE_SIGNALING_HPP
 #define SENPAI_VOICE_SIGNALING_HPP
 
 #include <functional>
 
-#include "senpai/ntgcalls_transport.hpp"
-#include "senpai/telegram_client.hpp"
+#include "senpai/voice/ntgcalls_transport.hpp"
+#include "senpai/telegram/telegram_client.hpp"
 
 namespace senpai {
 

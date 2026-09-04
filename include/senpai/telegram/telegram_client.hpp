@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "senpai/inline_keyboard.hpp"
-#include "senpai/td_client.hpp"
+#include "senpai/plugins/inline_keyboard.hpp"
+#include "senpai/telegram/td_client.hpp"
 
 namespace senpai {
 
@@ -106,6 +106,36 @@ public:
     std::string getChatMemberStatus(std::int64_t chatId, std::int64_t userId);
 
     std::int64_t resolveMessageId(std::int64_t messageId);
+
+    bool deleteMessage(std::int64_t chatId, std::int64_t messageId) {
+        return deleteMessages(chatId, {messageId});
+    }
+
+    bool copyMessage(std::int64_t fromChatId, std::int64_t messageId, std::int64_t toChatId) {
+        return forwardMessages(fromChatId, {messageId}, toChatId, true);
+    }
+
+    bool forwardMessage(std::int64_t fromChatId, std::int64_t messageId, std::int64_t toChatId) {
+        return forwardMessages(fromChatId, {messageId}, toChatId, false);
+    }
+
+    void answerCallback(std::int64_t queryId, const std::string& text = "", bool alert = false) {
+        answerCallbackQuery(queryId, text, alert);
+    }
+
+    std::string botName() const {
+        return me_.firstName.empty() ? "SenpaiMusic" : me_.firstName;
+    }
+
+    std::string botUsername() const {
+        return me_.username;
+    }
+
+    std::string userUsername(std::int64_t userId) {
+        return getUser(userId).username;
+    }
+
+    std::string userMention(std::int64_t userId);
 
     TdClient& raw() { return client_; }
 

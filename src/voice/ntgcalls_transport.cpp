@@ -1,4 +1,4 @@
-#include "senpai/ntgcalls_transport.hpp"
+﻿#include "senpai/voice/ntgcalls_transport.hpp"
 
 #include <chrono>
 #include <future>
@@ -12,7 +12,7 @@
 
 #include <nlohmann/json.hpp>
 #include "ntgcalls.h"
-#include "senpai/logger.hpp"
+#include "senpai/core/logger.hpp"
 
 namespace senpai {
 namespace {

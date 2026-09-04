@@ -1,12 +1,12 @@
-#include "senpai/admin_plugins.hpp"
+﻿#include "senpai/plugins/admin_plugins.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <sstream>
 
-#include "senpai/guards.hpp"
-#include "senpai/string_utils.hpp"
+#include "senpai/plugins/guards.hpp"
+#include "senpai/utils/string_utils.hpp"
 
 namespace senpai {
 namespace {
@@ -14,6 +14,7 @@ namespace {
 using utils::splitWs;
 using utils::toLower;
 using utils::parseI64;
+using utils::htmlEscape;
 
 bool hasFlag(const std::vector<std::string>& tokens, const std::string& flag) {
     for (std::size_t i = 1; i < tokens.size(); ++i)
@@ -107,7 +108,7 @@ std::int64_t AdminPlugins::say(std::int64_t chatId, const std::string& html,
     return api_.sendMessage(chatId, html, kb);
 }
 
-std::int64_t AdminPlugins::resolveTarget(const CommandEvent& ev) const {
+std::int64_t AdminPlugins::resolveTarget(const MessageContext& ev) const {
     if (ev.hasReply()) {
         const std::int64_t sender = api_.getMessageSenderId(ev.chatId, ev.replyToMessageId);
         if (sender != 0)
@@ -127,7 +128,7 @@ bool AdminPlugins::toLogGroup(const std::string& html) {
     return api_.sendMessage(config_.logger_id, html) != 0;
 }
 
-bool AdminPlugins::mayConfigure(const CommandEvent& ev) const {
+bool AdminPlugins::mayConfigure(const MessageContext& ev) const {
     return guards::adminCheck(api_, db_, ev.isPrivate, ev.chatId, ev.fromUserId) ||
            guards::isSudo(db_, config_, ev.fromUserId);
 }
@@ -152,7 +153,7 @@ buttons::MenuText AdminPlugins::menuText(const LangView& L) const {
     return t;
 }
 
-void AdminPlugins::onAuth(const CommandEvent& ev) {
+void AdminPlugins::onAuth(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("auth") : ev.command[0];
     const bool adding = name == "auth";
@@ -183,7 +184,7 @@ void AdminPlugins::onAuth(const CommandEvent& ev) {
     }
 }
 
-void AdminPlugins::onAuthList(const CommandEvent& ev) {
+void AdminPlugins::onAuthList(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::vector<std::int64_t> users = db_.getAuthUsers(ev.chatId);
     if (users.empty()) {
@@ -191,13 +192,13 @@ void AdminPlugins::onAuthList(const CommandEvent& ev) {
         return;
     }
 
-    std::string text = L.fmt("auth_list", Plugins::htmlEscape(api_.chatTitle(ev.chatId)));
+    std::string text = L.fmt("auth_list", htmlEscape(api_.chatTitle(ev.chatId)));
     for (std::int64_t id : users)
         text += "- " + api_.userMention(id) + "\n";
     api_.sendMessage(ev.chatId, text);
 }
 
-void AdminPlugins::onBlacklist(const CommandEvent& ev) {
+void AdminPlugins::onBlacklist(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("blacklist") : ev.command[0];
     const bool adding = name == "blacklist";
@@ -245,7 +246,7 @@ void AdminPlugins::onBlacklist(const CommandEvent& ev) {
     }
 }
 
-void AdminPlugins::onGcast(const CommandEvent& ev) {
+void AdminPlugins::onGcast(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!guards::isSudo(db_, config_, ev.fromUserId)) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
@@ -295,7 +296,7 @@ void AdminPlugins::onGcast(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("gcast_end", groups, users));
 }
 
-void AdminPlugins::onSudo(const CommandEvent& ev) {
+void AdminPlugins::onSudo(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("addsudo") : ev.command[0];
     const bool adding = name == "addsudo";
@@ -329,7 +330,7 @@ void AdminPlugins::onSudo(const CommandEvent& ev) {
     }
 }
 
-void AdminPlugins::onSudoList(const CommandEvent& ev) {
+void AdminPlugins::onSudoList(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     setStatus(ev.chatId, api_.sendMessage(ev.chatId, L["sudo_fetching"]));
 
@@ -352,7 +353,7 @@ InlineKeyboard AdminPlugins::languageKeyboard(const LangView& L) const {
     return buttons::langMenu(available, menuText(L));
 }
 
-void AdminPlugins::onLang(const CommandEvent& ev) {
+void AdminPlugins::onLang(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!mayConfigure(ev)) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
@@ -361,7 +362,7 @@ void AdminPlugins::onLang(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L["lang_choose"], languageKeyboard(L));
 }
 
-void AdminPlugins::onPing(const CommandEvent& ev) {
+void AdminPlugins::onPing(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
 
     const auto sentAt = std::chrono::steady_clock::now();
@@ -384,7 +385,7 @@ void AdminPlugins::onPing(const CommandEvent& ev) {
         kb);
 }
 
-void AdminPlugins::onStats(const CommandEvent& ev) {
+void AdminPlugins::onStats(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     setStatus(ev.chatId, api_.sendMessage(ev.chatId, L["stats_fetching"]));
 
@@ -409,7 +410,7 @@ void AdminPlugins::onStats(const CommandEvent& ev) {
     say(ev.chatId, text);
 }
 
-void AdminPlugins::onActiveVc(const CommandEvent& ev) {
+void AdminPlugins::onActiveVc(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!guards::isSudo(db_, config_, ev.fromUserId)) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
@@ -432,12 +433,12 @@ void AdminPlugins::onActiveVc(const CommandEvent& ev) {
     std::string text = L["vc_list"];
     for (std::int64_t chatId : active) {
         text += "\n- <code>" + std::to_string(chatId) + "</code> | " +
-                Plugins::htmlEscape(api_.chatTitle(chatId));
+                htmlEscape(api_.chatTitle(chatId));
     }
     say(ev.chatId, text);
 }
 
-std::string AdminPlugins::startCard(const LangView& L, const CommandEvent& ev) const {
+std::string AdminPlugins::startCard(const LangView& L, const MessageContext& ev) const {
     if (ev.isPrivate)
         return L.fmt("start_pm", api_.userMention(ev.fromUserId), api_.botName());
     return L.fmt("start_gp", api_.botName());
@@ -472,7 +473,7 @@ InlineKeyboard AdminPlugins::settingsKeyboard(const LangView& L,
                                  db_.getPlayMode(chatId));
 }
 
-void AdminPlugins::onStart(const CommandEvent& ev) {
+void AdminPlugins::onStart(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::string text = startCard(L, ev);
     const InlineKeyboard kb = startKeyboard(L, ev.isPrivate);
@@ -483,12 +484,12 @@ void AdminPlugins::onStart(const CommandEvent& ev) {
     }
 }
 
-void AdminPlugins::onHelp(const CommandEvent& ev) {
+void AdminPlugins::onHelp(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     api_.sendMessage(ev.chatId, helpBody(L), helpKeyboard(L));
 }
 
-void AdminPlugins::onSettings(const CommandEvent& ev) {
+void AdminPlugins::onSettings(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!mayConfigure(ev)) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
@@ -497,7 +498,7 @@ void AdminPlugins::onSettings(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, settingsCard(L), settingsKeyboard(L, ev.chatId));
 }
 
-void AdminPlugins::onLogger(const CommandEvent& ev) {
+void AdminPlugins::onLogger(const MessageContext& ev) {
     const LangView L = tr(ev.chatId);
     if (!guards::isSudo(db_, config_, ev.fromUserId)) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
@@ -517,7 +518,7 @@ void AdminPlugins::onLogger(const CommandEvent& ev) {
     }
 }
 
-void AdminPlugins::onSeen(const CommandEvent& ev) {
+void AdminPlugins::onSeen(const MessageContext& ev) {
 
     if (ev.chatId == 0 || ev.chatId == config_.logger_id)
         return;
@@ -542,18 +543,18 @@ void AdminPlugins::onSeen(const CommandEvent& ev) {
         return;
     db_.addChat(ev.chatId);
     toLogGroup(L.fmt("log_chat", ev.chatId,
-                     Plugins::htmlEscape(api_.chatTitle(ev.chatId)), ev.fromUserId,
+                     htmlEscape(api_.chatTitle(ev.chatId)), ev.fromUserId,
                      ev.fromUserId == 0 ? kNoUsername
                                         : api_.userMention(ev.fromUserId)));
 }
 
-void AdminPlugins::onMenu(const ButtonEvent& ev) {
+void AdminPlugins::onMenu(const CallbackContext& ev) {
     const LangView L = tr(ev.chatId);
     const std::vector<std::string> parts = splitWs(ev.data);
     if (parts.empty())
         return;
 
-    CommandEvent as;
+    MessageContext as;
     as.chatId     = ev.chatId;
     as.fromUserId = ev.fromUserId;
     as.isPrivate  = ev.chatId >= 0;

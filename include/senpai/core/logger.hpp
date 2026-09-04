@@ -22,8 +22,8 @@ public:
     static LogSink& instance();
 
     void init(const std::string& filePath = "log.txt",
-              std::size_t maxBytes = 10u * 1024u * 1024u,
-              int backupCount = 5,
+              std::size_t maxBytes = 0,
+              int backupCount = 0,
               LogLevel minLevel = LogLevel::Info);
 
     void setLevel(LogLevel lvl);
@@ -35,20 +35,12 @@ public:
 
 private:
     LogSink() = default;
-    ~LogSink();
+    ~LogSink() = default;
     LogSink(const LogSink&) = delete;
     LogSink& operator=(const LogSink&) = delete;
 
-    void ensureOpenLocked();
-    void rotateLocked();
-
     mutable std::mutex mtx_;
-    std::string filePath_ = "log.txt";
-    std::size_t maxBytes_ = 10u * 1024u * 1024u;
-    int backupCount_ = 5;
     LogLevel minLevel_ = LogLevel::Info;
-    std::FILE* file_ = nullptr;
-    std::size_t curSize_ = 0;
 };
 
 class Logger {

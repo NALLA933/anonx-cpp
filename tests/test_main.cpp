@@ -37,6 +37,12 @@ void testStringUtils() {
     assert(!senpai::utils::parseI64("99999999999999999999999", val));
     (void)val;
 
+    long uval = 0;
+    assert(senpai::utils::parseU32("42", uval) && uval == 42);
+    assert(!senpai::utils::parseU32("-5", uval));
+    assert(!senpai::utils::parseU32("abc", uval));
+    (void)uval;
+
     assert(senpai::utils::htmlEscape("<b>Tom & Jerry</b>") == "&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;");
 
     std::cout << "[PASS] testStringUtils" << std::endl;

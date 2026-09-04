@@ -5,22 +5,22 @@
 #include <string>
 #include <vector>
 
-#include "senpai/bot_api.hpp"
-#include "senpai/config.hpp"
-#include "senpai/database.hpp"
-#include "senpai/queue.hpp"
-#include "senpai/youtube.hpp"
+#include "senpai/telegram/telegram_client.hpp"
+#include "senpai/core/config.hpp"
+#include "senpai/database/database.hpp"
+#include "senpai/voice/queue.hpp"
+#include "senpai/utils/youtube.hpp"
 
 namespace senpai {
 namespace guards {
 
-bool isAdmin(BotApi& api, std::int64_t chatId, std::int64_t userId);
+bool isAdmin(TelegramClient& api, std::int64_t chatId, std::int64_t userId);
 
 bool isSudo(Database& db, const Config& config, std::int64_t userId);
 
-bool canManageVc(BotApi& api, Database& db, std::int64_t chatId, std::int64_t userId);
+bool canManageVc(TelegramClient& api, Database& db, std::int64_t chatId, std::int64_t userId);
 
-bool adminCheck(BotApi& api, Database& db, bool isPrivate,
+bool adminCheck(TelegramClient& api, Database& db, bool isPrivate,
                 std::int64_t chatId, std::int64_t userId);
 
 struct PlayRequest {
@@ -54,7 +54,7 @@ struct PlayPreflight {
 
 bool isFlag(const std::string& token);
 
-PlayPreflight runPlayPreflight(BotApi& api, Database& db, Queue& queue,
+PlayPreflight runPlayPreflight(TelegramClient& api, Database& db, Queue& queue,
                                YouTube& yt, const Config& config,
                                const PlayRequest& req);
 
