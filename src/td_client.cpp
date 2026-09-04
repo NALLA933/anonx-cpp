@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 
@@ -29,6 +30,8 @@ public:
     void ensureStarted() {
         std::lock_guard<std::mutex> lk(startMutex_);
         if (started_) return;
+        // Silence TDLib internal verbose network debug logs (level 1 = fatal/errors only)
+        td_execute(R"({"@type":"setLogVerbosityLevel","new_verbosity_level":1})");
         stop_.store(false);
         thread_ = std::thread([this] { run(); });
         started_ = true;
@@ -97,6 +100,10 @@ private:
 }  // namespace
 
 TdClient::TdClient() {
+    static std::once_flag logInitOnce;
+    std::call_once(logInitOnce, [] {
+        td_execute(R"({"@type":"setLogVerbosityLevel","new_verbosity_level":1})");
+    });
     clientId_ = td_create_client_id();
     TdPump::instance().registerClient(clientId_, this);
     TdPump::instance().ensureStarted();
