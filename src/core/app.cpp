@@ -68,6 +68,7 @@ void App::ensureDirs() {
     make("tdlib");
     make("data");
     make("data/tdlib_session");
+    make("cookies");
     logger_.info("Cache directories ready.");
 }
 

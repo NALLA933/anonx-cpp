@@ -65,6 +65,8 @@ bool Runtime::start() {
 
     log().info(config_.redactedSummary());
 
+    yt_.loadCookies(config_.cookies_url);
+
     db_.setDefaultLang(config_.lang_code);
     db_.setAssistantCount(config_.assistantCount());
 

@@ -11,8 +11,12 @@
 #include <vector>
 
 #include <dirent.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(_WIN32)
+#include <direct.h>
+#endif
 
 namespace senpai {
 namespace {
@@ -117,6 +121,38 @@ std::string runCapture(const std::string& cmd, int* exitCode) {
         else *exitCode = -1;
     }
     return out;
+}
+
+std::string normalizePasteUrl(std::string url) {
+    while (!url.empty() && static_cast<unsigned char>(url.front()) <= 32) url.erase(url.begin());
+    while (!url.empty() && static_cast<unsigned char>(url.back()) <= 32) url.pop_back();
+    if (url.empty()) return "";
+
+    if (url.find("batbin.me/") != std::string::npos &&
+        url.find("batbin.me/raw/") == std::string::npos &&
+        url.find("batbin.me/api/") == std::string::npos) {
+        auto pos = url.find("batbin.me/");
+        url.insert(pos + std::string("batbin.me/").length(), "raw/");
+    } else if (url.find("pastebin.com/") != std::string::npos &&
+               url.find("pastebin.com/raw/") == std::string::npos) {
+        auto pos = url.find("pastebin.com/");
+        url.insert(pos + std::string("pastebin.com/").length(), "raw/");
+    } else if (url.find("hastebin.com/") != std::string::npos &&
+               url.find("hastebin.com/raw/") == std::string::npos) {
+        auto pos = url.find("hastebin.com/");
+        url.insert(pos + std::string("hastebin.com/").length(), "raw/");
+    }
+    return url;
+}
+
+bool isValidUrl(const std::string& url) {
+    if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return false;
+    for (char c : url) {
+        if (static_cast<unsigned char>(c) <= 32 || c == '\'' || c == '"' || c == '`' || c == ';' || c == '|' || c == '&') {
+            return false;
+        }
+    }
+    return true;
 }
 
 }
@@ -259,22 +295,99 @@ std::optional<std::string> YouTube::download(const std::string& videoId, bool vi
     return std::nullopt;
 }
 
-std::string YouTube::pickCookie() {
-    if (!cookiesScanned_) {
-        const char* dirs[] = {"cookies", "senpai/cookies", "anony/cookies"};
-        for (const char* dir : dirs) {
-            DIR* d = ::opendir(dir);
-            if (!d) continue;
-            struct dirent* e;
-            while ((e = ::readdir(d)) != nullptr) {
-                const std::string name = e->d_name;
-                if (name.size() > 4 && name.compare(name.size() - 4, 4, ".txt") == 0) {
-                    cookies_.push_back(std::string(dir) + "/" + name);
+void YouTube::loadCookies(const std::vector<std::string>& urls) {
+#if defined(_WIN32)
+    ::_mkdir("cookies");
+#else
+    ::mkdir("cookies", 0755);
+#endif
+
+    Logger log("senpai.youtube");
+    std::size_t idx = 1;
+
+    for (const std::string& rawUrl : urls) {
+        const std::string normUrl = normalizePasteUrl(rawUrl);
+        if (!isValidUrl(normUrl)) {
+            log.warning("Skipping invalid cookie URL: " + rawUrl);
+            continue;
+        }
+
+        const std::string destFile = "cookies/cookie_" + std::to_string(idx++) + ".txt";
+        log.info("Fetching remote cookies from: " + normUrl);
+
+        const std::string cmd = "curl -sSL -f --max-time 15 " + shellQuote(normUrl) + " -o " + shellQuote(destFile) + " 2>/dev/null";
+        int code = -1;
+        runCapture(cmd, &code);
+
+        if (code == 0 && fileExists(destFile)) {
+            std::FILE* fp = std::fopen(destFile.c_str(), "rb");
+            if (fp) {
+                std::fseek(fp, 0, SEEK_END);
+                long sz = std::ftell(fp);
+                std::rewind(fp);
+
+                char buf[512] = {0};
+                std::size_t readLen = std::fread(buf, 1, sizeof(buf) - 1, fp);
+                std::fclose(fp);
+
+                std::string header(buf, readLen);
+                bool isError = (sz < 20) ||
+                               (header.find("[Batbin Error]") != std::string::npos) ||
+                               (header.find("<!DOCTYPE") != std::string::npos) ||
+                               (header.find("<html") != std::string::npos);
+
+                if (isError) {
+                    log.warning("Downloaded content from " + normUrl + " is not a valid cookie file (error response or HTML page).");
+                    std::remove(destFile.c_str());
+                } else {
+                    log.info("Saved cookies to " + destFile + " (" + std::to_string(sz) + " bytes).");
                 }
             }
-            ::closedir(d);
+        } else {
+            log.warning("Failed to download cookies from " + normUrl);
+            std::remove(destFile.c_str());
         }
-        cookiesScanned_ = true;
+    }
+
+    cookies_.clear();
+    const char* dirs[] = {"cookies", "senpai/cookies", "anony/cookies"};
+    for (const char* dir : dirs) {
+        DIR* d = ::opendir(dir);
+        if (!d) continue;
+        struct dirent* e;
+        while ((e = ::readdir(d)) != nullptr) {
+            const std::string name = e->d_name;
+            if (name.size() > 4 && name.compare(name.size() - 4, 4, ".txt") == 0) {
+                std::string fullPath = std::string(dir) + "/" + name;
+                std::FILE* tf = std::fopen(fullPath.c_str(), "rb");
+                if (tf) {
+                    std::fseek(tf, 0, SEEK_END);
+                    long sz = std::ftell(tf);
+                    std::fclose(tf);
+                    if (sz > 20) {
+                        cookies_.push_back(fullPath);
+                    }
+                }
+            }
+        }
+        ::closedir(d);
+    }
+    cookiesScanned_ = true;
+
+    if (cookies_.empty()) {
+        if (!warnedNoCookies_) {
+            warnedNoCookies_ = true;
+            log.warning("Cookies are missing; downloads might fail.");
+        }
+    } else {
+        warnedNoCookies_ = false;
+        log.info("Loaded " + std::to_string(cookies_.size()) + " active cookie file(s) for YouTube.");
+    }
+}
+
+std::string YouTube::pickCookie() {
+    if (!cookiesScanned_) {
+        loadCookies({});
     }
 
     if (cookies_.empty()) {

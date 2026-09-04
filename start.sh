@@ -147,6 +147,9 @@ if [ ! -f "$ENV_FILE" ]; then
     echo -e "${CYAN}${BOLD}[6] Enter PHONE_NUMBER${NC} (Assistant phone with international code, e.g. +1234567890):"
     read -r -p "    > " INP_PHONE_NUMBER
 
+    echo -e "${CYAN}${BOLD}[7] Enter COOKIES_URL / COOKIES_LINK${NC} (Batbin URL containing YouTube cookies, or press Enter to skip):"
+    read -r -p "    > " INP_COOKIES_URL
+
     log_info "Creating .env file..."
 
     cat <<EOF > "$ENV_FILE"
@@ -172,6 +175,8 @@ THUMB_GEN=True
 VIDEO_PLAY=True
 LANG_CODE=en
 
+COOKIES_URL=$INP_COOKIES_URL
+
 SUPPORT_CHANNEL=https://t.me/fallenx
 SUPPORT_CHAT=https://t.me/DevilsHeavenMF
 EOF
@@ -179,6 +184,38 @@ EOF
     log_success ".env configuration file created successfully."
 else
     log_info "Existing .env file detected. Using existing configuration."
+fi
+
+# Fetch remote YouTube cookies if configured in .env (COOKIES_URL / COOKIES_LINK)
+COOKIES_CFG=$(grep -E '^[[:space:]]*(COOKIES_URL|COOKIES_LINK|COOKIE_URL|COOKIE_LINK)=' "$ENV_FILE" 2>/dev/null | head -n 1 | cut -d '=' -f2- | tr -d '"' | tr -d "'" || true)
+if [ -n "$COOKIES_CFG" ]; then
+    mkdir -p cookies
+    cookie_idx=1
+    for raw_url in $COOKIES_CFG; do
+        fetch_url="$raw_url"
+        if echo "$fetch_url" | grep -q "batbin.me/" && ! echo "$fetch_url" | grep -q "batbin.me/raw/"; then
+            fetch_url=$(echo "$fetch_url" | sed 's|batbin.me/|batbin.me/raw/|')
+        elif echo "$fetch_url" | grep -q "pastebin.com/" && ! echo "$fetch_url" | grep -q "pastebin.com/raw/"; then
+            fetch_url=$(echo "$fetch_url" | sed 's|pastebin.com/|pastebin.com/raw/|')
+        elif echo "$fetch_url" | grep -q "hastebin.com/" && ! echo "$fetch_url" | grep -q "hastebin.com/raw/"; then
+            fetch_url=$(echo "$fetch_url" | sed 's|hastebin.com/|hastebin.com/raw/|')
+        fi
+
+        log_info "Downloading YouTube cookies from $raw_url..."
+        dest_file="cookies/cookie_${cookie_idx}.txt"
+        if curl -sSL -f --max-time 15 "$fetch_url" -o "$dest_file"; then
+            if [ -s "$dest_file" ] && ! grep -q "\[Batbin Error\]" "$dest_file" && ! head -n 2 "$dest_file" | grep -qi "<\!DOCTYPE\|<html"; then
+                log_success "YouTube cookies saved to $dest_file ($(wc -c < "$dest_file" | tr -d ' ') bytes)"
+                cookie_idx=$((cookie_idx + 1))
+            else
+                log_warn "Downloaded content from $raw_url was invalid (HTML error page); discarding."
+                rm -f "$dest_file"
+            fi
+        else
+            log_warn "Failed to download cookies from $raw_url"
+            rm -f "$dest_file"
+        fi
+    done
 fi
 
 echo ""

@@ -45,6 +45,8 @@ public:
     bool valid(const std::string& url) const;
     bool invalid(const std::string& url) const;
 
+    void loadCookies(const std::vector<std::string>& urls = {});
+
     static std::optional<Track> parseTrackJson(const std::string& jsonText, bool video);
 
     static std::string runCommand(const std::string& cmd);

@@ -40,7 +40,7 @@ bool makeDir(const char* path) {
 }
 
 bool ensureDirs(const senpai::Logger& log) {
-    for (const char* dir : {"cache", "downloads", "tdlib", "data", "data/tdlib_session"}) {
+    for (const char* dir : {"cache", "downloads", "tdlib", "data", "data/tdlib_session", "cookies"}) {
         if (!makeDir(dir)) {
             log.critical(std::string("cannot create directory '") + dir + "': " +
                          std::strerror(errno));

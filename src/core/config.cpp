@@ -147,10 +147,17 @@ Config Config::load(const std::string& envFile) {
 
     {
         std::string raw = env.str("COOKIES_URL");
+        if (raw.empty()) raw = env.str("COOKIES_LINK");
+        if (raw.empty()) raw = env.str("COOKIE_URL");
+        if (raw.empty()) raw = env.str("COOKIE_LINK");
+
+        for (char& ch : raw) {
+            if (ch == ',' || ch == ';') ch = ' ';
+        }
         std::istringstream iss(raw);
         std::string tok;
         while (iss >> tok) {
-            if (tok.find("batbin.me") != std::string::npos) {
+            if (tok.rfind("http://", 0) == 0 || tok.rfind("https://", 0) == 0) {
                 c.cookies_url.push_back(tok);
             }
         }
