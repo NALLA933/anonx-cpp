@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 1 data layer
-// database.cpp — implementation of the SQLite-backed, write-through cache.
-
 #include "anonx/database.hpp"
 
 #include <sqlite3.h>
@@ -10,8 +7,6 @@
 namespace anonx {
 namespace {
 
-// Small RAII wrapper around a prepared statement: prepare in the ctor,
-// finalize in the dtor. Keeps every DB helper exception-safe.
 class Stmt {
 public:
     Stmt(sqlite3* db, const char* sql) : db_(db) {
@@ -45,7 +40,6 @@ void logError(const char* ctx, const std::exception& e) {
     std::cerr << "[Database] " << ctx << ": " << e.what() << std::endl;
 }
 
-// Schema kept in sync with schema.sql (admin_play is persistent).
 const char* const kSchemaSql = R"SQL(
 CREATE TABLE IF NOT EXISTS chats (
     chat_id     INTEGER PRIMARY KEY,
@@ -84,11 +78,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 )SQL";
 
-}  // namespace
-
-// ============================================================
-// Construction / teardown (RAII)
-// ============================================================
+}
 
 Database::Database(const std::string& path) : rng_(std::random_device{}()) {
     if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK) {
@@ -99,9 +89,7 @@ Database::Database(const std::string& path) : rng_(std::random_device{}()) {
         }
         throw DatabaseError("failed to open '" + path + "': " + msg);
     }
-    // Concurrency + durability: WAL lets readers and a writer run together;
-    // NORMAL is the recommended durability level with WAL; busy_timeout makes
-    // the (rare) writer contention block briefly instead of failing.
+
     execOrThrow("PRAGMA journal_mode=WAL;");
     execOrThrow("PRAGMA synchronous=NORMAL;");
     execOrThrow("PRAGMA foreign_keys=ON;");
@@ -113,10 +101,6 @@ Database::Database(const std::string& path) : rng_(std::random_device{}()) {
 Database::~Database() {
     if (db_) sqlite3_close_v2(db_);
 }
-
-// ============================================================
-// Low-level helpers (mtx_ assumed held)
-// ============================================================
 
 void Database::execOrThrow(const char* sql) {
     char* err = nullptr;
@@ -180,10 +164,6 @@ void Database::ensureSudoLoaded() {
     sudoLoaded_ = true;
 }
 
-// ============================================================
-// Global config
-// ============================================================
-
 void Database::setDefaultLang(const std::string& code) {
     std::lock_guard<std::mutex> lk(mtx_);
     defaultLang_ = code;
@@ -192,10 +172,6 @@ void Database::setAssistantCount(int count) {
     std::lock_guard<std::mutex> lk(mtx_);
     assistantCount_ = count < 1 ? 1 : count;
 }
-
-// ============================================================
-// chats
-// ============================================================
 
 bool Database::isChat(std::int64_t chatId) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -254,10 +230,6 @@ std::size_t Database::chatCount() {
     }
 }
 
-// ============================================================
-// users
-// ============================================================
-
 bool Database::isUser(std::int64_t userId) {
     std::lock_guard<std::mutex> lk(mtx_);
     try {
@@ -312,10 +284,6 @@ std::size_t Database::userCount() {
         return 0;
     }
 }
-
-// ============================================================
-// auth
-// ============================================================
 
 bool Database::isAuth(std::int64_t chatId, std::int64_t userId) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -373,10 +341,6 @@ std::vector<std::int64_t> Database::getAuthUsers(std::int64_t chatId) {
     }
 }
 
-// ============================================================
-// language
-// ============================================================
-
 std::string Database::getLang(std::int64_t chatId) {
     std::lock_guard<std::mutex> lk(mtx_);
     try {
@@ -410,10 +374,6 @@ bool Database::setLang(std::int64_t chatId, const std::string& langCode) {
     }
 }
 
-// ============================================================
-// assistant
-// ============================================================
-
 int Database::assignAssistantLocked(std::int64_t chatId) {
     int count = assistantCount_ < 1 ? 1 : assistantCount_;
     std::uniform_int_distribution<int> dist(1, count);
@@ -424,7 +384,7 @@ int Database::assignAssistantLocked(std::int64_t chatId) {
                 "ON CONFLICT(chat_id) DO UPDATE SET num=excluded.num;");
         st.bindInt(1, chatId);
         st.bindInt(2, num);
-        st.step();  // best effort; cache is authoritative for this session
+        st.step();
     } catch (const std::exception& e) {
         logError("assignAssistant", e);
     }
@@ -459,10 +419,6 @@ int Database::getAssistant(std::int64_t chatId) {
         return assignAssistantLocked(chatId);
     }
 }
-
-// ============================================================
-// blacklist
-// ============================================================
 
 bool Database::isBlacklistedChat(std::int64_t chatId) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -561,10 +517,6 @@ bool Database::removeBlacklist(std::int64_t id) {
     return id < 0 ? removeBlacklistChat(id) : removeBlacklistUser(id);
 }
 
-// ============================================================
-// sudoers
-// ============================================================
-
 bool Database::isSudo(std::int64_t userId) {
     std::lock_guard<std::mutex> lk(mtx_);
     try {
@@ -610,10 +562,6 @@ std::vector<std::int64_t> Database::getSudoers() {
     }
 }
 
-// ============================================================
-// per-chat flags (cmd_delete, admin_play) — persistent, write-through
-// ============================================================
-
 bool Database::getChatFlagLocked(std::int64_t chatId, const char* selectSql,
                                  std::unordered_map<std::int64_t, bool>& cache) {
     auto it = cache.find(chatId);
@@ -632,7 +580,7 @@ bool Database::setChatFlagLocked(std::int64_t chatId, bool enabled, const char* 
     st.bindInt(2, enabled ? 1 : 0);
     if (st.step() != SQLITE_DONE) throw DatabaseError(sqlite3_errmsg(db_));
     cache[chatId] = enabled;
-    if (chatsLoaded_) chats_.insert(chatId);  // upsert may have created the row
+    if (chatsLoaded_) chats_.insert(chatId);
     return true;
 }
 
@@ -683,10 +631,6 @@ bool Database::setPlayMode(std::int64_t chatId, bool enabled) {
     }
 }
 
-// ============================================================
-// Global settings (persistent key/value)
-// ============================================================
-
 std::string Database::getSetting(const std::string& key,
                                  const std::string& fallback) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -725,12 +669,10 @@ bool Database::setSetting(const std::string& key, const std::string& value) {
     }
 }
 
-// The log-group toggle (/logger on|off). Defaults to enabled, matching the
-// Python bot, which posts to LOGGER_ID unless the owner turns it off.
 bool Database::getLoggerEnabled() { return getSetting("logger", "1") != "0"; }
 
 bool Database::setLoggerEnabled(bool enabled) {
     return setSetting("logger", enabled ? "1" : "0");
 }
 
-}  // namespace anonx
+}

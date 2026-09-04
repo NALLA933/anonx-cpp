@@ -1,10 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// plugins.cpp — playback commands + the inline "controls" router (see plugins.hpp).
-//
-// Every string comes from the locale files, every keyboard from buttons.cpp, and
-// every permission decision from guards.cpp, so this file is only control flow —
-// which is exactly what has to match the Python plugins.
-
 #include "anonx/plugins.hpp"
 
 #include <algorithm>
@@ -19,7 +12,6 @@
 namespace anonx {
 namespace {
 
-// Split a callback payload on single spaces (the format buttons.cpp emits).
 std::vector<std::string> splitWs(const std::string& text) {
     std::vector<std::string> out;
     std::istringstream in(text);
@@ -29,8 +21,6 @@ std::vector<std::string> splitWs(const std::string& text) {
     return out;
 }
 
-// Strict "all digits" parse. Returns false on empty/overflow/garbage so callers
-// can show the usage string instead of silently treating junk as 0.
 bool parseU32(const std::string& text, long& out) {
     if (text.empty() || text.size() > 9)
         return false;
@@ -72,23 +62,16 @@ std::string toLower(std::string text) {
     return text;
 }
 
-// A YouTube playlist link. Mirrors the `"list" in url` test in play.py.
 bool isPlaylistUrl(const std::string& url) {
     return url.find("list=") != std::string::npos ||
            url.find("/playlist") != std::string::npos;
 }
 
-// Minimum seek step enforced by seek.py ("play_seek_min").
 constexpr int kMinSeekSeconds = 10;
 
-// Never seek into the last few seconds — the stream would end instantly.
 constexpr int kSeekTailGuard = 10;
 
-}  // namespace
-
-// ---------------------------------------------------------------------------
-// construction / small helpers
-// ---------------------------------------------------------------------------
+}
 
 Plugins::Plugins(const Deps& deps)
     : api_(deps.api), db_(deps.db), cache_(deps.cache), queue_(deps.queue),
@@ -141,10 +124,6 @@ std::int64_t Plugins::say(std::int64_t chatId, const std::string& html,
     return api_.sendMessage(chatId, html, kb);
 }
 
-// ---------------------------------------------------------------------------
-// cards
-// ---------------------------------------------------------------------------
-
 std::string Plugins::nowPlayingCard(const LangView& L, const MediaItem& item) const {
     return L.fmt("play_media", item.url, htmlEscape(item.title), item.duration,
                  item.user);
@@ -156,23 +135,16 @@ std::string Plugins::queuedCard(const LangView& L, const MediaItem& item,
                  item.duration, item.user);
 }
 
-// ---------------------------------------------------------------------------
-// CallManager callbacks
-// ---------------------------------------------------------------------------
-
 std::int64_t Plugins::renderNowPlaying(std::int64_t chatId, const MediaItem& item) {
     const LangView L = tr(chatId);
-    // A fresh card carries only the five transport buttons: the status/timer row
-    // exists to echo the last action back to the user, and the elapsed-time
-    // readout the Python bot puts there comes from pytgcalls' played_time, which
-    // the abstract VoiceTransport does not expose.
+
     return say(chatId, nowPlayingCard(L, item), buttons::controls(chatId));
 }
 
 void Plugins::renderNotice(std::int64_t chatId, CallManager::Notice notice) {
     const LangView L = tr(chatId);
     std::string text;
-    bool becomesCard = false;   // the upcoming "now playing" card reuses this message
+    bool becomesCard = false;
 
     switch (notice) {
         case CallManager::Notice::PlayAgain:
@@ -224,13 +196,8 @@ CallManager::Callbacks Plugins::callbacks() {
 
 void Plugins::attachCallbacks() { calls_.setCallbacks(callbacks()); }
 
-// ---------------------------------------------------------------------------
-// command name tables
-// ---------------------------------------------------------------------------
-
 std::vector<std::string> Plugins::playCommands() {
-    // The name itself carries the flags: a leading "v" means video, a trailing
-    // "force" means skip the queue (see guards::runPlayPreflight).
+
     return {"play", "vplay", "playforce", "vplayforce"};
 }
 std::vector<std::string> Plugins::skipCommands()   { return {"skip"}; }
@@ -241,10 +208,6 @@ std::vector<std::string> Plugins::loopCommands()   { return {"loop"}; }
 std::vector<std::string> Plugins::queueCommands()  { return {"queue"}; }
 std::vector<std::string> Plugins::seekCommands()   { return {"seek", "seekback"}; }
 
-// ---------------------------------------------------------------------------
-// /play /vplay /playforce /vplayforce
-// ---------------------------------------------------------------------------
-
 void Plugins::onPlay(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
 
@@ -252,7 +215,7 @@ void Plugins::onPlay(const CommandEvent& ev) {
     req.chatId       = ev.chatId;
     req.fromUserId   = ev.fromUserId;
     req.isSupergroup = !ev.isPrivate && isSupergroupId(ev.chatId);
-    req.hasReply     = false;   // replied media is deferred (see plugins.hpp)
+    req.hasReply     = false;
     req.command      = ev.command;
 
     const guards::PlayPreflight pre =
@@ -284,14 +247,10 @@ void Plugins::onPlay(const CommandEvent& ev) {
 
     const std::string mention = api_.userMention(ev.fromUserId);
 
-    // One status message carries the whole request: "Searching…" becomes
-    // "Downloading…" becomes either the now-playing card (rendered from inside
-    // CallManager) or the "added to queue" card.
     setStatus(ev.chatId, api_.sendMessage(ev.chatId, L["play_searching"]));
 
     if (pre.m3u8) {
-        // A direct/HLS link: nothing to search or download — the transport
-        // streams the URL itself, so file_path IS the url.
+
         MediaItem item;
         item.id        = pre.url;
         item.title     = pre.url;
@@ -308,7 +267,7 @@ void Plugins::onPlay(const CommandEvent& ev) {
                 buttons::playQueued(ev.chatId, item.id, L["play_now"]));
         }
     } else if (!pre.url.empty() && isPlaylistUrl(pre.url)) {
-        // say() consumes the slot, so re-arm it with the message it just wrote.
+
         setStatus(ev.chatId, say(ev.chatId, L["playlist_fetch"]));
 
         const std::vector<MediaItem> tracks =
@@ -318,8 +277,6 @@ void Plugins::onPlay(const CommandEvent& ev) {
             return;
         }
 
-        // The first track starts (or queues, if something is already playing);
-        // the rest queue behind it, exactly as play.py loops over the results.
         for (const MediaItem& track : tracks)
             calls_.play(ev.chatId, track, false);
 
@@ -329,8 +286,7 @@ void Plugins::onPlay(const CommandEvent& ev) {
             summary += L.fmt("queue_item", index++, htmlEscape(track.title),
                              track.duration);
         }
-        // If the first track started streaming, the status message has already
-        // become the now-playing card, so say() posts the summary separately.
+
         say(ev.chatId, summary);
     } else {
         const std::string query = pre.url.empty() ? pre.query : pre.url;
@@ -349,7 +305,6 @@ void Plugins::onPlay(const CommandEvent& ev) {
         track->user  = mention;
         track->video = pre.video;
 
-        // Re-arm the slot: the card will replace this "Downloading…" message.
         setStatus(ev.chatId, say(ev.chatId, L["play_downloading"]));
 
         const CallManager::PlayDecision decision =
@@ -363,10 +318,6 @@ void Plugins::onPlay(const CommandEvent& ev) {
     if (pre.cmdDelete)
         api_.deleteMessage(ev.chatId, ev.messageId);
 }
-
-// ---------------------------------------------------------------------------
-// the admin-only playback commands
-// ---------------------------------------------------------------------------
 
 bool Plugins::requireControl(const CommandEvent& ev, const LangView& L) {
     if (!guards::canManageVc(api_, db_, ev.chatId, ev.fromUserId)) {
@@ -386,9 +337,7 @@ void Plugins::onSkip(const CommandEvent& ev) {
         return;
 
     api_.sendMessage(ev.chatId, L.fmt("play_skipped", api_.userMention(ev.fromUserId)));
-    // Note: playNext honours the loop counter, so /skip on a looping track
-    // replays it — the same behaviour as the Python skip handler, which also
-    // just delegates to play_next.
+
     calls_.playNext(ev.chatId);
 }
 
@@ -401,8 +350,7 @@ void Plugins::onPause(const CommandEvent& ev) {
         return;
     }
     if (!calls_.pause(ev.chatId)) {
-        // pause() already stopped the chat on failure; the only useful thing
-        // left to say is that there is no live call any more.
+
         api_.sendMessage(ev.chatId, L["error_no_call"]);
         return;
     }
@@ -460,7 +408,7 @@ void Plugins::onLoop(const CommandEvent& ev) {
 
 void Plugins::onQueue(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
-    // Reading the queue needs no permissions — only an active stream.
+
     if (!cache_.isActiveCall(ev.chatId) || queue_.empty(ev.chatId)) {
         api_.sendMessage(ev.chatId, L["not_playing"]);
         return;
@@ -475,7 +423,6 @@ void Plugins::onQueue(const CommandEvent& ev) {
         text += L.fmt("queue_item", i, htmlEscape(items[i].title), items[i].duration);
     }
 
-    // The button label shows the current state; pressing it toggles.
     const bool playing = cache_.isPlaying(ev.chatId);
     say(ev.chatId, text,
         buttons::queueMarkup(ev.chatId, playing ? L["playing"] : L["paused"], playing));
@@ -505,14 +452,11 @@ void Plugins::onSeek(const CommandEvent& ev) {
         return;
     }
     if (current->duration_sec <= 0) {
-        // A live stream or a direct link — nothing to seek within.
+
         api_.sendMessage(ev.chatId, L["play_seek_no_dur"]);
         return;
     }
 
-    // MediaItem::time holds the offset the stream was last started from. (The
-    // Python bot asks pytgcalls for played_time; the abstract transport has no
-    // such query, so the applied offset is tracked here instead.)
     const long long from = current->time > 0 ? current->time : 0;
     long long target = backward ? from - requested : from + requested;
     const long long last = current->duration_sec > kSeekTailGuard
@@ -524,21 +468,15 @@ void Plugins::onSeek(const CommandEvent& ev) {
 
     current->time = static_cast<int>(target);
     queue_.replaceCurrent(ev.chatId, *current);
-    // seekTime != 0 makes playMedia restart the stream at the offset without
-    // re-rendering the now-playing card.
+
     calls_.playMedia(ev.chatId, *current, static_cast<int>(target));
 
     say(ev.chatId, L.fmt("play_seeked", backward ? L["backward"] : L["forward"],
                          target, api_.userMention(ev.fromUserId)));
 }
 
-// ---------------------------------------------------------------------------
-// the "controls …" inline keyboard
-// ---------------------------------------------------------------------------
-
 void Plugins::onControls(const ButtonEvent& ev) {
-    // "controls <action> <chatId> [itemId|q]" — the exact payloads buttons.cpp
-    // emits. Anything else means the card predates a restart/upgrade.
+
     const std::vector<std::string> parts = splitWs(ev.data);
     std::int64_t chatId = 0;
     if (parts.size() < 3 || parts[0] != "controls" || !parseI64(parts[2], chatId)) {
@@ -552,7 +490,6 @@ void Plugins::onControls(const ButtonEvent& ev) {
     const bool queueCard = extra == "q";
     const LangView L = tr(chatId);
 
-    // The status/timer button is a label, not an action: report the live state.
     if (action == "status") {
         api_.answerCallback(ev.queryId,
                             cache_.isPlaying(chatId) ? L["playing"] : L["paused"],
@@ -566,21 +503,19 @@ void Plugins::onControls(const ButtonEvent& ev) {
     }
 
     if (action == "force") {
-        // "Play Now" on an "added to queue" card.
+
         const std::pair<int, std::optional<MediaItem>> found =
             queue_.checkItem(chatId, extra);
         if (found.first < 0 || !found.second) {
             api_.answerCallback(ev.queryId, L["play_expired"], true);
             return;
         }
-        // CallManager::play(force) promotes the item with forceAdd(removeAt = 0),
-        // which does not drop the copy still sitting at its old position — so the
-        // duplicate is erased here first (forceAdd's removeAt does exactly that).
+
         if (found.first > 0)
             queue_.forceAdd(chatId, *found.second, found.first);
         calls_.play(chatId, *found.second, true);
 
-        api_.editMessageReplyMarkup(chatId, ev.messageId, {});  // button is spent
+        api_.editMessageReplyMarkup(chatId, ev.messageId, {});
         api_.answerCallback(ev.queryId, L["play_now"], false);
         return;
     }
@@ -591,7 +526,7 @@ void Plugins::onControls(const ButtonEvent& ev) {
     }
 
     std::string status;
-    bool removeTransport = false;   // terminal action -> drop the transport row
+    bool removeTransport = false;
 
     if (action == "pause") {
         if (!cache_.isPlaying(chatId)) {
@@ -624,14 +559,12 @@ void Plugins::onControls(const ButtonEvent& ev) {
     }
 
     if (queueCard) {
-        // The queue card keeps its text; only its toggle button flips.
+
         api_.editMessageReplyMarkup(
             chatId, ev.messageId,
             buttons::queueMarkup(chatId, status, cache_.isPlaying(chatId)));
     } else {
-        // The now-playing card keeps its text too, but gains a status label. Its
-        // text has to be read back because the card may have been rendered by a
-        // previous process (the callback carries no message text).
+
         const std::string text = api_.getMessageText(chatId, ev.messageId);
         const InlineKeyboard kb = buttons::controls(chatId, status, "", removeTransport);
         if (text.empty())
@@ -643,4 +576,4 @@ void Plugins::onControls(const ButtonEvent& ev) {
     api_.answerCallback(ev.queryId, status, false);
 }
 
-}  // namespace anonx
+}

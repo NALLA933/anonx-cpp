@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 2
-// app.cpp — implementation of the application skeleton.
-
 #include "anonx/app.hpp"
 
 #include "anonx/cache_manager.hpp"
@@ -15,19 +12,16 @@
 #include <thread>
 #include <vector>
 
-#include <sys/stat.h>   // mkdir
-#include <unistd.h>     // access
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace anonx {
 namespace {
 
-// Set by the signal handler; polled by run(). volatile sig_atomic_t is the only
-// type safe to touch from an async signal handler.
 volatile std::sig_atomic_t g_stopFlag = 0;
 
 extern "C" void onSignal(int) { g_stopFlag = 1; }
 
-// Is `tool` an executable found on any PATH directory?
 bool onPath(const std::string& tool) {
     const char* pathEnv = std::getenv("PATH");
     if (!pathEnv) return false;
@@ -41,11 +35,11 @@ bool onPath(const std::string& tool) {
     return false;
 }
 
-}  // namespace
+}
 
 App::App(const std::string& envFile)
     : config_(Config::load(envFile)), logger_("anonx") {
-    // Match the Python root logger: log.txt (rotating) + stderr, INFO level.
+
     LogSink::instance().init("log.txt");
     logger_.info(std::string("AnonXMusic C++ ") + kVersion + " — initialising");
 
@@ -53,7 +47,7 @@ App::App(const std::string& envFile)
         config_.check();
     } catch (const ConfigError& e) {
         logger_.critical(e.what());
-        throw;  // let main() report and exit non-zero
+        throw;
     }
 }
 
@@ -78,8 +72,7 @@ void App::ensureDirs() {
 }
 
 void App::checkMediaTools() {
-    // The Python original hard-requires deno + ffmpeg. Voice streaming lands in
-    // Phase 5, so here we only warn — the skeleton still boots on a dev box.
+
     std::vector<std::string> missing;
     if (!onPath("ffmpeg")) missing.push_back("ffmpeg");
     if (!onPath("deno"))   missing.push_back("deno");
@@ -102,13 +95,11 @@ void App::boot() {
     ensureDirs();
     checkMediaTools();
 
-    // ---- data layer ----
     db_ = std::make_unique<Database>(config_.db_path);
     db_->setDefaultLang(config_.lang_code);
     db_->setAssistantCount(config_.assistantCount());
     cache_ = std::make_unique<CacheManager>();
 
-    // Report loaded persistent state, echoing __main__.py's boot logging.
     const std::size_t sudo = db_->getSudoers().size();
     const std::size_t blU  = db_->getBlacklistedUsers().size();
     const std::size_t blC  = db_->getBlacklistedChats().size();
@@ -126,8 +117,7 @@ void App::boot() {
 }
 
 void App::run() {
-    // Install SIGINT/SIGTERM handlers (POSIX sigaction), then idle until asked
-    // to stop — the C++ analogue of __main__.py's idle()/stop_event.
+
     struct sigaction sa;
     std::memset(&sa, 0, sizeof(sa));
     sa.sa_handler = &onSignal;
@@ -148,7 +138,6 @@ void App::stop() {
     stopped_ = true;
     logger_.info("Stopping...");
 
-    // Release the data layer (Database's destructor closes the SQLite handle cleanly).
     cache_.reset();
     db_.reset();
 
@@ -173,4 +162,4 @@ CacheManager& App::cache() {
     return *cache_;
 }
 
-}  // namespace anonx
+}

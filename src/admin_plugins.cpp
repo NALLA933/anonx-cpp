@@ -1,10 +1,3 @@
-// AnonXMusic C++ port — Phase 6b (admin & menu commands)
-// admin_plugins.cpp — see admin_plugins.hpp for the mapping to the Python files.
-//
-// Like plugins.cpp this file is only control flow: strings come from the locale
-// tables, keyboards from buttons.cpp, permissions from guards.cpp and host
-// metrics from SystemInfo.
-
 #include "anonx/admin_plugins.hpp"
 
 #include <algorithm>
@@ -33,8 +26,6 @@ std::string toLower(std::string text) {
     return text;
 }
 
-// Strict signed parse; false on empty/garbage/overflow so the caller can show
-// the "only ids are supported" string instead of acting on a silent 0.
 bool parseI64(const std::string& text, std::int64_t& out) {
     if (text.empty() || text.size() > 20)
         return false;
@@ -58,7 +49,6 @@ bool parseI64(const std::string& text, std::int64_t& out) {
     return true;
 }
 
-// Does `tokens` (a command's arguments) contain `flag`, case-insensitively?
 bool hasFlag(const std::vector<std::string>& tokens, const std::string& flag) {
     for (std::size_t i = 1; i < tokens.size(); ++i)
         if (toLower(tokens[i]) == flag)
@@ -66,13 +56,11 @@ bool hasFlag(const std::vector<std::string>& tokens, const std::string& flag) {
     return false;
 }
 
-// Shown where the Python card interpolates `user.username` and there is none.
 const char kNoUsername[] = "-";
 
-// The upstream project this port follows, for the start card's Source button.
 const char kSourceUrl[] = "https://github.com/AnonymousX1025/AnonXMusic";
 
-}  // namespace
+}
 
 AdminPlugins::AdminPlugins(const Deps& deps)
     : api_(deps.api),
@@ -82,10 +70,6 @@ AdminPlugins::AdminPlugins(const Deps& deps)
       sys_(deps.sys),
       lang_(deps.lang),
       config_(deps.config) {}
-
-// ---------------------------------------------------------------------------
-// command names
-// ---------------------------------------------------------------------------
 
 std::vector<std::string> AdminPlugins::authCommands() { return {"auth", "unauth"}; }
 std::vector<std::string> AdminPlugins::authListCommands() { return {"authlist"}; }
@@ -113,15 +97,13 @@ std::vector<std::vector<std::string>> AdminPlugins::allCommandGroups() {
 }
 
 int AdminPlugins::moduleCount() {
-    // The Python card counted loaded plugin files. The port's analogue is the
-    // number of command groups it registers: the eight playback groups of
-    // Plugins plus AdminPlugins' own, so the figure follows the code.
+
     const int playback = 8;
     return playback + static_cast<int>(allCommandGroups().size());
 }
 
 const std::vector<std::pair<std::string, std::string>>& AdminPlugins::helpTopics() {
-    // Button label key, page body key — the order fixes the "help <n>" payloads.
+
     static const std::vector<std::pair<std::string, std::string>> topics = {
         {"help_0", "help_admins"}, {"help_1", "help_auth"},  {"help_2", "help_blist"},
         {"help_3", "help_lang"},   {"help_4", "help_ping"},  {"help_5", "help_play"},
@@ -129,10 +111,6 @@ const std::vector<std::pair<std::string, std::string>>& AdminPlugins::helpTopics
     };
     return topics;
 }
-
-// ---------------------------------------------------------------------------
-// small helpers
-// ---------------------------------------------------------------------------
 
 LangView AdminPlugins::tr(std::int64_t chatId) const {
     return lang_.view(db_.getLang(chatId));
@@ -208,10 +186,6 @@ buttons::MenuText AdminPlugins::menuText(const LangView& L) const {
     return t;
 }
 
-// ---------------------------------------------------------------------------
-// auth
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onAuth(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("auth") : ev.command[0];
@@ -230,7 +204,7 @@ void AdminPlugins::onAuth(const CommandEvent& ev) {
 
     const std::string mention = api_.userMention(target);
     if (adding) {
-        // An admin already has every power the auth list grants.
+
         if (guards::isAdmin(api_, ev.chatId, target)) {
             api_.sendMessage(ev.chatId, L["auth_is_admin"]);
             return;
@@ -257,10 +231,6 @@ void AdminPlugins::onAuthList(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, text);
 }
 
-// ---------------------------------------------------------------------------
-// blacklist
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onBlacklist(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("blacklist") : ev.command[0];
@@ -271,7 +241,6 @@ void AdminPlugins::onBlacklist(const CommandEvent& ev) {
         return;
     }
 
-    // The target may be given as an id, or by replying to someone's message.
     std::int64_t id = 0;
     if (ev.command.size() >= 2) {
         if (!parseI64(ev.command[1], id) || id == 0) {
@@ -286,8 +255,6 @@ void AdminPlugins::onBlacklist(const CommandEvent& ev) {
         return;
     }
 
-    // Chat ids are negative, user ids positive — the same split the Python
-    // add_blacklist/del_blacklist helpers make.
     const bool isChat = id < 0;
     const bool listed = isChat ? db_.isBlacklistedChat(id) : db_.isBlacklistedUser(id);
 
@@ -299,7 +266,7 @@ void AdminPlugins::onBlacklist(const CommandEvent& ev) {
         db_.addBlacklist(id);
         api_.sendMessage(ev.chatId, L["bl_added"]);
         if (!isChat) {
-            // Courtesy notice to the user, in their own chat with the bot.
+
             api_.sendMessage(id, L.fmt("bl_user_notify", config_.support_chat));
         }
     } else {
@@ -311,10 +278,6 @@ void AdminPlugins::onBlacklist(const CommandEvent& ev) {
         api_.sendMessage(ev.chatId, L["bl_removed"]);
     }
 }
-
-// ---------------------------------------------------------------------------
-// broadcast
-// ---------------------------------------------------------------------------
 
 void AdminPlugins::onGcast(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
@@ -333,8 +296,6 @@ void AdminPlugins::onGcast(const CommandEvent& ev) {
         return;
     }
 
-    // Flags (help_sudo): -nochat skips groups, -user adds users, -copy strips the
-    // "forwarded from" header.
     const bool noChat = hasFlag(ev.command, "-nochat");
     const bool toUsers = hasFlag(ev.command, "-user");
     const bool asCopy = hasFlag(ev.command, "-copy");
@@ -368,17 +329,11 @@ void AdminPlugins::onGcast(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L.fmt("gcast_end", groups, users));
 }
 
-// ---------------------------------------------------------------------------
-// sudoers
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onSudo(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
     const std::string name = ev.command.empty() ? std::string("addsudo") : ev.command[0];
     const bool adding = name == "addsudo";
 
-    // Granting sudo is the owner's privilege alone (Python gates the handler with
-    // filters.user(OWNER_ID); this port replies instead of staying silent).
     if (ev.fromUserId != config_.owner_id) {
         api_.sendMessage(ev.chatId, L["user_no_perms"]);
         return;
@@ -422,13 +377,8 @@ void AdminPlugins::onSudoList(const CommandEvent& ev) {
     say(ev.chatId, text);
 }
 
-// ---------------------------------------------------------------------------
-// language
-// ---------------------------------------------------------------------------
-
 InlineKeyboard AdminPlugins::languageKeyboard(const LangView& L) const {
-    // Only offer languages whose file actually loaded, so no button can lead to
-    // a chat set to a missing translation.
+
     std::vector<std::pair<std::string, std::string>> available;
     for (const auto& entry : Language::allCodes())
         if (lang_.loaded(entry.first))
@@ -445,15 +395,9 @@ void AdminPlugins::onLang(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, L["lang_choose"], languageKeyboard(L));
 }
 
-// ---------------------------------------------------------------------------
-// info
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onPing(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
 
-    // Latency is measured the way the Python bot does it: the round trip of the
-    // "pinging" message itself.
     const auto sentAt = std::chrono::steady_clock::now();
     const std::int64_t status = api_.sendMessage(ev.chatId, L["pinging"]);
     const auto elapsed = std::chrono::steady_clock::now() - sentAt;
@@ -461,8 +405,6 @@ void AdminPlugins::onPing(const CommandEvent& ev) {
         std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     setStatus(ev.chatId, status);
 
-    // The support button is dropped when no support chat is configured, so the
-    // card never carries a button with an empty URL.
     InlineKeyboard kb;
     if (!config_.support_chat.empty())
         kb = buttons::pingMarkup(L["support"], config_.support_chat);
@@ -482,7 +424,7 @@ void AdminPlugins::onStats(const CommandEvent& ev) {
 
     const std::vector<std::int64_t> sudoers = db_.getSudoers();
     const std::size_t sudoCount =
-        sudoers.size() + (db_.isSudo(config_.owner_id) ? 0u : 1u);   // owner included
+        sudoers.size() + (db_.isSudo(config_.owner_id) ? 0u : 1u);
 
     std::string text =
         L.fmt("stats_user", api_.botName(), config_.assistantCount(),
@@ -490,7 +432,6 @@ void AdminPlugins::onStats(const CommandEvent& ev) {
               db_.getBlacklistedChats().size(), db_.getBlacklistedUsers().size(),
               sudoCount, db_.chatCount(), db_.userCount());
 
-    // The extended block is sudo-only, exactly as in the Python plugin.
     if (guards::isSudo(db_, config_, ev.fromUserId)) {
         text += L.fmt("stats_sudo", moduleCount(), sys_.platform(), sys_.ramUsedMb(),
                       SystemInfo::round1(sys_.ramTotalGb()),
@@ -516,7 +457,7 @@ void AdminPlugins::onActiveVc(const CommandEvent& ev) {
     }
 
     const std::string name = ev.command.empty() ? std::string("ac") : ev.command[0];
-    if (name == "ac") {                       // just the count
+    if (name == "ac") {
         api_.sendMessage(ev.chatId, L.fmt("vc_count", active.size()));
         return;
     }
@@ -529,10 +470,6 @@ void AdminPlugins::onActiveVc(const CommandEvent& ev) {
     }
     say(ev.chatId, text);
 }
-
-// ---------------------------------------------------------------------------
-// menus
-// ---------------------------------------------------------------------------
 
 std::string AdminPlugins::startCard(const LangView& L, const CommandEvent& ev) const {
     if (ev.isPrivate)
@@ -594,10 +531,6 @@ void AdminPlugins::onSettings(const CommandEvent& ev) {
     api_.sendMessage(ev.chatId, settingsCard(L), settingsKeyboard(L, ev.chatId));
 }
 
-// ---------------------------------------------------------------------------
-// logger
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onLogger(const CommandEvent& ev) {
     const LangView L = tr(ev.chatId);
     if (!guards::isSudo(db_, config_, ev.fromUserId)) {
@@ -618,13 +551,8 @@ void AdminPlugins::onLogger(const CommandEvent& ev) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// chat watcher
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onSeen(const CommandEvent& ev) {
-    // Never account for the log group itself, and never grow the served lists
-    // from a blacklisted chat or user.
+
     if (ev.chatId == 0 || ev.chatId == config_.logger_id)
         return;
     if (db_.isBlacklistedChat(ev.chatId))
@@ -632,7 +560,7 @@ void AdminPlugins::onSeen(const CommandEvent& ev) {
     if (ev.fromUserId != 0 && db_.isBlacklistedUser(ev.fromUserId))
         return;
 
-    const LangView L = lang_.view(lang_.defaultCode());   // the log group's language
+    const LangView L = lang_.view(lang_.defaultCode());
 
     if (ev.isPrivate) {
         if (ev.fromUserId == 0 || db_.isUser(ev.fromUserId))
@@ -653,18 +581,12 @@ void AdminPlugins::onSeen(const CommandEvent& ev) {
                                         : api_.userMention(ev.fromUserId)));
 }
 
-// ---------------------------------------------------------------------------
-// inline buttons
-// ---------------------------------------------------------------------------
-
 void AdminPlugins::onMenu(const ButtonEvent& ev) {
     const LangView L = tr(ev.chatId);
     const std::vector<std::string> parts = splitWs(ev.data);
     if (parts.empty())
         return;
 
-    // Reuse the message-side permission logic by describing the presser as the
-    // command sender they effectively are.
     CommandEvent as;
     as.chatId     = ev.chatId;
     as.fromUserId = ev.fromUserId;
@@ -679,7 +601,7 @@ void AdminPlugins::onMenu(const ButtonEvent& ev) {
         return;
     }
 
-    if (ns == "start") {                                    // "start menu"
+    if (ns == "start") {
         api_.answerCallback(ev.queryId);
         api_.editMessageText(ev.chatId, ev.messageId, startCard(L, as),
                              startKeyboard(L, as.isPrivate));
@@ -716,9 +638,7 @@ void AdminPlugins::onMenu(const ButtonEvent& ev) {
             return;
         }
         const std::string code = parts[2];
-        // Every button carries a loaded code (see languageKeyboard), so anything
-        // else is a stale or hand-made payload: ignore it rather than pointing the
-        // chat at a translation that is not there.
+
         if (!lang_.loaded(code))
             return;
         const std::string name = Language::nameOf(code);
@@ -728,7 +648,7 @@ void AdminPlugins::onMenu(const ButtonEvent& ev) {
         }
         api_.answerCallback(ev.queryId, L.fmt("lang_change", name));
         db_.setLang(ev.chatId, code);
-        // The confirmation is rendered in the language just chosen.
+
         const LangView N = tr(ev.chatId);
         api_.editMessageText(ev.chatId, ev.messageId, N.fmt("lang_changed", name),
                              buttons::backClose(menuText(N), "settings menu"));
@@ -757,11 +677,10 @@ void AdminPlugins::onMenu(const ButtonEvent& ev) {
             return;
         }
         api_.answerCallback(ev.queryId);
-        // Only the marks changed, so the card text stays and the markup is
-        // refreshed in place.
+
         api_.editMessageReplyMarkup(ev.chatId, ev.messageId,
                                     settingsKeyboard(L, ev.chatId));
     }
 }
 
-}  // namespace anonx
+}

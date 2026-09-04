@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 4
-// td_client.cpp — TDLib JSON transport: shared receive pump + invoke() matching.
-
 #include "anonx/td_client.hpp"
 
 #include <td/telegram/td_json_client.h>
@@ -17,9 +14,6 @@ namespace {
 
 using nlohmann::json;
 
-// One process-wide pump: TDLib requires that td_receive() be called from a
-// single thread. It routes each received object to the owning client by its
-// "@client_id" field.
 class TdPump {
 public:
     static TdPump& instance() {
@@ -30,7 +24,7 @@ public:
     void ensureStarted() {
         std::lock_guard<std::mutex> lk(startMutex_);
         if (started_) return;
-        // Silence TDLib internal verbose network debug logs (level 1 = fatal/errors only)
+
         td_execute(R"({"@type":"setLogVerbosityLevel","new_verbosity_level":1})");
         stop_.store(false);
         thread_ = std::thread([this] { run(); });
@@ -64,7 +58,7 @@ private:
 
     void run() {
         while (!stop_.load()) {
-            const char* r = td_receive(0.1);   // seconds
+            const char* r = td_receive(0.1);
             if (!r) continue;
             std::string s(r);
 
@@ -97,7 +91,7 @@ private:
     std::unordered_map<int, TdClient*> clients_;
 };
 
-}  // namespace
+}
 
 TdClient::TdClient() {
     static std::once_flag logInitOnce;
@@ -108,24 +102,12 @@ TdClient::TdClient() {
     TdPump::instance().registerClient(clientId_, this);
     TdPump::instance().ensureStarted();
 
-    // td_create_client_id() only hands out an identifier: "the TDLib instance
-    // will not send updates until the first request is sent to it". Without a
-    // first request no authorizationStateWaitTdlibParameters would ever arrive
-    // and boot() would sit waiting for a state machine that never started, so
-    // kick the instance awake here — the same getOption("version") TDLib's own
-    // tdjson examples use for this.
-    //
-    // It has to happen after registerClient(): the pump is shared, so an object
-    // that came back for an id it does not know yet would be dropped, and the
-    // dropped one would be exactly that first authorization update. Updates
-    // arriving before setUpdateHandler() are buffered (see onIncoming), so
-    // sending this early loses nothing.
     send(R"({"@type":"getOption","name":"version"})");
 }
 
 TdClient::~TdClient() {
     TdPump::instance().unregisterClient(clientId_);
-    // Release anyone still blocked in invoke().
+
     std::lock_guard<std::mutex> lk(pendingMutex_);
     for (auto& kv : pending_) {
         kv.second->set_value(R"({"@type":"error","code":500,"message":"client destroyed"})");
@@ -194,7 +176,6 @@ void TdClient::stopRuntime() {
 void TdClient::onIncoming(std::string s) {
     json j = json::parse(s, nullptr, false);
 
-    // Response to an invoke()? (TDLib echoes the "@extra" we attached.)
     if (!j.is_discarded() && j.is_object() && j.contains("@extra")) {
         std::string extra;
         try {
@@ -219,7 +200,6 @@ void TdClient::onIncoming(std::string s) {
         }
     }
 
-    // Otherwise it is an asynchronous update.
     UpdateHandler h;
     {
         std::lock_guard<std::mutex> lk(handlerMutex_);
@@ -233,4 +213,4 @@ void TdClient::onIncoming(std::string s) {
     h(s);
 }
 
-}  // namespace anonx
+}

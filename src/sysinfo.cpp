@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 6b (admin & menu commands)
-// sysinfo.cpp — POSIX implementation of the host metrics (see sysinfo.hpp).
-
 #include "anonx/sysinfo.hpp"
 
 #include <sys/statvfs.h>
@@ -17,7 +14,6 @@
 namespace anonx {
 namespace {
 
-// One value from /proc/meminfo, in kibibytes (0 when the key is absent).
 std::uint64_t memInfoKb(const char* key) {
     std::ifstream in("/proc/meminfo");
     if (!in)
@@ -36,9 +32,8 @@ std::uint64_t memInfoKb(const char* key) {
     return 0;
 }
 
-constexpr double kKbPerGb = 1024.0 * 1024.0;   // KiB in a GiB
+constexpr double kKbPerGb = 1024.0 * 1024.0;
 
-// Used = total - available (psutil's "used" for virtual_memory percent).
 void memUsage(std::uint64_t& totalKb, std::uint64_t& usedKb) {
     totalKb = memInfoKb("MemTotal");
     const std::uint64_t availKb = memInfoKb("MemAvailable");
@@ -58,7 +53,7 @@ bool diskUsage(double& usedGb, double& totalGb) {
     return total > 0.0;
 }
 
-}  // namespace
+}
 
 SystemInfo::SystemInfo() : start_(std::chrono::steady_clock::now()) {}
 
@@ -70,12 +65,12 @@ bool SystemInfo::readCpuJiffies(std::uint64_t& total, std::uint64_t& idle) {
     in >> cpu;
     if (cpu != "cpu")
         return false;
-    // user nice system idle iowait irq softirq steal guest guest_nice
+
     std::uint64_t values[10] = {0};
     total = 0;
     for (std::size_t i = 0; i < 10 && (in >> values[i]); ++i)
         total += values[i];
-    idle = values[3] + values[4];   // idle + iowait
+    idle = values[3] + values[4];
     return total > 0;
 }
 
@@ -85,8 +80,7 @@ double SystemInfo::cpuPercent() {
         return 0.0;
 
     if (!sampled_) {
-        // Nothing to diff against yet — take a short sample, like psutil's
-        // cpu_percent(interval=0.1) on its first call.
+
         lastTotal_ = total;
         lastIdle_  = idle;
         sampled_   = true;
@@ -197,4 +191,4 @@ std::string SystemInfo::round1(double value) {
     return buf;
 }
 
-}  // namespace anonx
+}

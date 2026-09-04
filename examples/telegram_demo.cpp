@@ -1,28 +1,15 @@
-// AnonXMusic C++ port — Phase 4 (+ the Phase 6a/6b routing table, + integration)
-// telegram_demo.cpp — self-checking tests for the Telegram layer.
-//
-// Part 1 exercises the Dispatcher, filters and command parsing with no
-// connection at all. Part 2 drives the full TdClient -> TelegramClient ->
-// Dispatcher / Userbot stack against the scripted fake TDLib (see
-// test/fake_tdjson), so the authorization flow and routing are verified
-// offline and deterministically. Part 3 installs the real routing table
-// (src/plugins_router.cpp) and checks that every command reaches its own
-// handler. Part 4 boots the whole integrated Runtime — the real TelegramBotApi
-// over the fake TDLib, a FakeVoiceTransport for the engine — and asserts on the
-// JSON the bot actually put on the wire. Any failure calls std::exit(1).
-
 #include "anonx/config.hpp"
 #include "anonx/dispatcher.hpp"
 #include "anonx/logger.hpp"
-#include "anonx/plugins_router.hpp"   // the routing table exercised in Part 3
-#include "anonx/runtime.hpp"          // the whole object graph, exercised in Part 4
+#include "anonx/plugins_router.hpp"
+#include "anonx/runtime.hpp"
 #include "anonx/telegram_client.hpp"
 #include "anonx/td_client.hpp"
 #include "anonx/userbot.hpp"
 
-#include "fake_bot_api.hpp"           // Part 3 runs the real handlers over fakes
+#include "fake_bot_api.hpp"
 #include "fake_system_info.hpp"
-#include "fake_tdjson_hook.h"         // test-only injection into the fake TDLib
+#include "fake_tdjson_hook.h"
 #include "fake_voice_transport.hpp"
 #include "fake_youtube.hpp"
 
@@ -49,10 +36,6 @@ using namespace anonx;
             std::exit(1);                                                       \
         }                                                                       \
     } while (0)
-
-// ---------------------------------------------------------------------------
-// Part 1: filters, command parsing, and routing (no TDLib)
-// ---------------------------------------------------------------------------
 
 static void testFiltersAndParsing() {
     Dispatcher d;
@@ -110,7 +93,6 @@ static void testFiltersAndParsing() {
     CHECK(filters::userWhere(isBlacklisted)(g), "userWhere match");
     CHECK(!filters::userWhere(isBlacklisted)(p), "userWhere no-match");
 
-    // Composition: /play in a group from a non-blacklisted user.
     auto f = filters::command({"play"}) && filters::groupChat() &&
              !filters::userWhere(isBlacklisted);
     CHECK(!f(g), "combinator excludes blacklisted user");
@@ -161,13 +143,11 @@ static void testCallbackRouting() {
     d.onCallback(filters::callbackData("play_1"),
                  [&](CallbackContext& c) { result = "exact:" + c.data; });
 
-    // "vol_up" base64 == dm9sX3Vw
     d.onUpdate(
         R"({"@type":"updateNewCallbackQuery","id":999,"sender_user_id":7,"chat_id":-100,)"
         R"("message_id":3,"payload":{"@type":"callbackQueryPayloadData","data":"dm9sX3Vw"}})");
     CHECK(result == "prefix:vol_up", "callback prefix + base64 decode");
 
-    // "play_1" base64 == cGxheV8x
     d.onUpdate(
         R"({"@type":"updateNewCallbackQuery","id":1000,"sender_user_id":7,"chat_id":-100,)"
         R"("message_id":3,"payload":{"@type":"callbackQueryPayloadData","data":"cGxheV8x"}})");
@@ -176,12 +156,8 @@ static void testCallbackRouting() {
     std::printf("  [ok] callback routing + base64 payloads\n");
 }
 
-// ---------------------------------------------------------------------------
-// Part 2: full stack against the fake TDLib
-// ---------------------------------------------------------------------------
-
 static void testBotBootAndOps() {
-    Dispatcher disp;   // declared first so it outlives `bot`
+    Dispatcher disp;
 
     TelegramClient::Options opts;
     opts.apiId = 12345;
@@ -206,7 +182,6 @@ static void testBotBootAndOps() {
     const std::int64_t mid = bot.sendMessage(-1001122334455LL, "<b>Bot Started</b>");
     CHECK(mid != 0, "sendMessage returns a message id");
 
-    // Route live updates through the dispatcher.
     disp.attach(bot);
 
     std::mutex mtx;
@@ -241,7 +216,6 @@ static void testBotBootAndOps() {
     CHECK(gotUser == 777, "dispatched sender id");
     CHECK(gotType == ChatType::Group, "dispatched chat classified as group");
 
-    // Callback query end-to-end.
     std::mutex cmtx;
     std::condition_variable ccv;
     bool cbHit = false;
@@ -251,7 +225,7 @@ static void testBotBootAndOps() {
         cbHit = true;
         cbData = c.data;
         ccv.notify_all();
-        c.answer("done");   // exercises answerCallbackQuery path
+        c.answer("done");
     });
 
     fake_td_inject(
@@ -279,15 +253,15 @@ static void testUserbotManager() {
     a1.name = "AnonyUB1";
     a1.phoneNumber = "+10000000001";
     a1.sessionDirectory = "tdlib/assistant1";
-    a1.codeProvider = [] { return std::string("11111"); };   // -> Ready
+    a1.codeProvider = [] { return std::string("11111"); };
     ub.addAssistant(a1);
 
     Userbot::AssistantSpec a2;
     a2.name = "AnonyUB2";
     a2.phoneNumber = "+10000000002";
     a2.sessionDirectory = "tdlib/assistant2";
-    a2.codeProvider = [] { return std::string("2fa"); };       // -> WaitPassword
-    a2.passwordProvider = [] { return std::string("secret"); };// -> Ready
+    a2.codeProvider = [] { return std::string("2fa"); };
+    a2.passwordProvider = [] { return std::string("secret"); };
     ub.addAssistant(a2);
 
     ub.setLoggerChatId(-100999);
@@ -303,38 +277,15 @@ static void testUserbotManager() {
     std::printf("  [ok] userbot manager (bot-token + phone + 2FA logins)\n");
 }
 
-// ---------------------------------------------------------------------------
-// Part 3: the plugin router — installPlugins() (Phase 6a/6b wiring)
-//
-// src/plugins_router.cpp is the one file that knows both the Dispatcher and the
-// command handlers, so it is where a "wired to the wrong handler" bug hides:
-// every handler can be perfectly correct and the bot still answer /pause with
-// the skip notice. These checks install the real routing table and drive it
-// through Dispatcher::dispatchMessage / dispatchCallback — no TDLib involved,
-// with fakes standing in for Telegram, YouTube, the voice engine and the host
-// metrics.
-//
-// Every command is verified by EQUIVALENCE: dispatching it through the router
-// must leave exactly the trace that calling its own handler directly leaves on
-// an identical bot — the watcher first, then the handler, which is the order
-// installPlugins() registers them in. Comparing the whole recorded trace rather
-// than one message also pins the adapters: a swapped registration, a missing
-// alias, a dropped keyboard or a lost reply-to id all change the trace.
-//
-// Locale files are optional here. A key that is not loaded renders as "{key}",
-// which is still unique per message, so the traces stay distinct either way;
-// when locales/ is found the comparison simply runs over the real templates.
-// ---------------------------------------------------------------------------
-
 namespace router {
 
-constexpr std::int64_t kChat    = -1001234567890LL;  // the group commands run in
-constexpr std::int64_t kLogger  = -1009999999999LL;  // LOG_GROUP_ID
-constexpr std::int64_t kBoss    = 7;                 // owner + admin: no gate refuses
-constexpr std::int64_t kBanned  = 8;                 // a blacklisted user
-constexpr std::int64_t kBadChat = -1005555555555LL;  // a blacklisted chat
+constexpr std::int64_t kChat    = -1001234567890LL;
+constexpr std::int64_t kLogger  = -1009999999999LL;
+constexpr std::int64_t kBoss    = 7;
+constexpr std::int64_t kBanned  = 8;
+constexpr std::int64_t kBadChat = -1005555555555LL;
 
-int g_routed = 0;   // commands + payloads compared, printed as an anti-vacuity note
+int g_routed = 0;
 
 std::string freshDbPath() {
     static int counter = 0;
@@ -345,7 +296,6 @@ std::string freshDbPath() {
     return path;
 }
 
-// The router checks compare traces, not wording, so the table is optional.
 void loadLocales(Language& lang) {
     std::vector<std::string> dirs;
 #ifdef ANONX_LOCALES_DIR
@@ -361,9 +311,6 @@ void loadLocales(Language& lang) {
     lang.setDefault("en");
 }
 
-// One fully wired bot: fakes for everything external, the real Database,
-// CacheManager, CallManager, Plugins and AdminPlugins, plus a Dispatcher for
-// the copy that gets the routing table installed.
 struct Bot {
     std::string        dbPath;
     FakeBotApi         api;
@@ -377,15 +324,14 @@ struct Bot {
     Config             config;
     Plugins            plugins;
     AdminPlugins       admin;
-    Dispatcher         disp;   // declared last, so it is destroyed FIRST and its
-                               // handlers never outlive what they captured
+    Dispatcher         disp;
 
     explicit Bot(const Language& lang)
         : dbPath(freshDbPath()), db(dbPath), calls(tp, queue, cache),
           plugins(Plugins::Deps{api, db, cache, queue, yt, calls, lang, config}),
           admin(AdminPlugins::Deps{api, db, cache, calls, sys, lang, config}) {
-        config.owner_id        = kBoss;   // the owner passes every permission gate,
-        config.logger_id       = kLogger; // so each command reaches its real branch
+        config.owner_id        = kBoss;
+        config.logger_id       = kLogger;
         config.support_chat    = "https://t.me/support";
         config.support_channel = "https://t.me/channel";
         db.setDefaultLang("en");
@@ -393,11 +339,6 @@ struct Bot {
         api.makeAdmin(kChat, kBoss);
         api.titles[kChat] = "Router Group";
 
-        // A live, playing stream with two queued tracks: without it every playback
-        // command would answer with the same "nothing is playing" notice and a
-        // swapped registration would go unnoticed. The second track matters too —
-        // /skip advances into it, which is what makes the CallManager callbacks
-        // (and therefore installPlugins()'s attachCallbacks() call) observable.
         cache.addCall(kChat);
         for (int i = 1; i <= 2; ++i) {
             MediaItem track;
@@ -422,8 +363,6 @@ struct Bot {
     Bot& operator=(const Bot&) = delete;
 };
 
-// Everything the fakes recorded, as one printable block: op, target chat,
-// message id, alert flag, text and the whole keyboard.
 std::string trace(const FakeBotApi& api) {
     std::string out;
     for (const FakeBotApi::Record& r : api.log) {
@@ -440,9 +379,6 @@ std::string trace(const FakeBotApi& api) {
     return out;
 }
 
-// /ping measures the round trip of its own status message, so its card carries a
-// latency that need not repeat. Dropping the digits keeps the comparison (op
-// sequence, template text, keyboard) without the one field that can differ.
 std::string noDigits(const std::string& s) {
     std::string out;
     for (char c : s) {
@@ -503,10 +439,10 @@ void expectRoutes(const Language& lang, const std::string& label,
     CHECK(routed.disp.dispatchMessage(ctx), (label + ": is routed").c_str());
 
     Bot mirror(lang);
-    mirror.plugins.attachCallbacks();          // installPlugins() does this too
+    mirror.plugins.attachCallbacks();
     const CommandEvent ev = toCommandEvent(ctx);
-    mirror.admin.onSeen(ev);                   // the watcher runs first ...
-    direct(mirror, ev);                        // ... then the matched handler
+    mirror.admin.onSeen(ev);
+    direct(mirror, ev);
 
     compare(label, trace(routed.api), trace(mirror.api), ignoreDigits);
 }
@@ -533,8 +469,6 @@ void expectCallbackRoutes(const Language& lang, const std::string& payload,
     compare("\"" + payload + "\"", trace(routed.api), trace(mirror.api), false);
 }
 
-// --- the adapters ----------------------------------------------------------
-
 void testAdapters() {
     MessageContext raw = msg({"SeekBack", "30"}, false);
     raw.replyToMessageId = 404;
@@ -558,10 +492,8 @@ void testAdapters() {
     std::printf("  [ok] router adapters (MessageContext/CallbackContext -> events)\n");
 }
 
-// --- the routing table ------------------------------------------------------
-
 void testCommandRouting(const Language& lang) {
-    // Phase 6a: playback. Every alias of every group, all group-only.
+
     struct PlaybackGroup {
         std::vector<std::string> names;
         std::vector<std::string> args;
@@ -587,8 +519,6 @@ void testCommandRouting(const Language& lang) {
     }
     std::printf("  [ok] playback commands: every alias, all group-only\n");
 
-    // Phase 6b. The arguments are chosen so each handler takes a branch of its
-    // own instead of a shared refusal, which is what makes the traces distinct.
     struct AdminGroup {
         std::vector<std::string> names;
         std::vector<std::string> args;
@@ -635,9 +565,7 @@ void testCommandRouting(const Language& lang) {
             tokens.insert(tokens.end(), g.args.begin(), g.args.end());
             expectRoutes(lang, "/" + name, tokens, false, g.handler, g.ignoreDigits);
         }
-        // The auth list and the settings card are per-group state, so those stay
-        // group-only; everything else must answer in private too, which is where
-        // the sudo commands are normally used.
+
         std::vector<std::string> first{g.names.front()};
         first.insert(first.end(), g.args.begin(), g.args.end());
         if (g.groupOnly)
@@ -649,14 +577,11 @@ void testCommandRouting(const Language& lang) {
     std::printf("  [ok] admin commands: %d groups, group-only vs private honoured\n",
                 static_cast<int>(groups.size()));
 
-    // filters::command() is case-insensitive and the adapter lowercases the name,
-    // so a shouted command lands in the same handler.
     expectRoutes(lang, "/PING", {"PING"}, false,
                  [](Bot& b, const CommandEvent& e) { b.admin.onPing(e); }, true);
     expectRoutes(lang, "/Stats", {"Stats"}, false,
                  [](Bot& b, const CommandEvent& e) { b.admin.onStats(e); });
 
-    // Nothing is registered for these.
     expectIgnored(lang, "an unknown command", {"definitelynotacommand"}, false);
     expectIgnored(lang, "a plain message", {}, false);
     std::printf("  [ok] case-insensitive commands, unknown commands ignored\n");
@@ -675,8 +600,6 @@ void testBlacklistFilters(const Language& lang) {
         MessageContext fine = msg({"ping"}, false);
         CHECK(bot.disp.dispatchMessage(fine), "another user in the same chat is answered");
 
-        // The filter reads the database per message, so /blacklist takes effect
-        // immediately — no re-installation of the routing table.
         bot.db.addBlacklist(kBoss);
         MessageContext now = msg({"ping"}, false);
         CHECK(!bot.disp.dispatchMessage(now), "blacklisting applies to the next message");
@@ -695,7 +618,7 @@ void testBlacklistFilters(const Language& lang) {
 }
 
 void testWatcherAndMenus(const Language& lang) {
-    // The watcher is its own handler group: it sees messages no command matches.
+
     {
         Bot bot(lang);
         installPlugins(bot.disp, bot.plugins, bot.admin, bot.db);
@@ -705,7 +628,7 @@ void testWatcherAndMenus(const Language& lang) {
         const FakeBotApi::Record* note = bot.api.last("send");
         CHECK(note != nullptr && note->chatId == kLogger, "and told the log group");
     }
-    // ... and runs alongside a command, never instead of it.
+
     {
         Bot bot(lang);
         installPlugins(bot.disp, bot.plugins, bot.admin, bot.db);
@@ -723,15 +646,11 @@ void testWatcherAndMenus(const Language& lang) {
     }
     std::printf("  [ok] chat watcher: every message, alongside the command handlers\n");
 
-    // filters.regex("controls") — every player button.
     expectCallbackRoutes(lang, "controls " + std::to_string(kChat) + " pause",
                          [](Bot& b, const ButtonEvent& e) { b.plugins.onControls(e); });
     expectCallbackRoutes(lang, "controls nonsense",
                          [](Bot& b, const ButtonEvent& e) { b.plugins.onControls(e); });
 
-    // The menu payloads documented in buttons.hpp. ("lang set <code>" is left to
-    // admin_demo: it does nothing when that locale is not loaded, and locales are
-    // optional here.)
     for (const char* payload : {"help menu", "help 3", "lang menu", "settings menu",
                                 "settings toggle cmd_delete", "settings toggle play_mode",
                                 "start menu", "close"}) {
@@ -760,41 +679,17 @@ void run() {
     std::printf("  [ok] plugin router: %d command/payload traces matched\n", g_routed);
 }
 
-}  // namespace router
-
-// ---------------------------------------------------------------------------
-// Part 4: the integrated Runtime — the whole bot, on the wire
-//
-// Parts 1–3 verified the layers and the routing table; every one of them stopped
-// at a seam. This part removes the last one: it boots anonx::Runtime, which is
-// exactly what src/main.cpp boots, with the REAL TelegramBotApi over the fake
-// TDLib and a FakeVoiceTransport standing in for NTgCalls. Nothing else is
-// substituted — the real Database, Language, CacheManager, Queue, CallManager,
-// Plugins, AdminPlugins, Dispatcher and router are all in play.
-//
-// The checks then read the requests the bot actually sent (recorded by the fake,
-// see test/fake_tdjson/fake_tdjson_hook.h) instead of a fake's call log, so they
-// cover the parts no earlier phase could: that start() wires the graph up in an
-// order that works, that an update arriving on TDLib's receive pump reaches a
-// real handler and comes back out as valid TDLib JSON — the card text, the
-// base64 callback payloads, answerCallbackQuery — and that the voice transport
-// injected at the top really is the one the buttons drive.
-//
-// Note on the fake: td_execute(parseTextEntities) returns the text verbatim with
-// no entities, so it does not parse HTML. A card read back with getMessage
-// therefore comes out escaped; the checks below assert on the OUTGOING request,
-// which is what a real deployment would send.
-// ---------------------------------------------------------------------------
+}
 
 namespace integration {
 
 using nlohmann::json;
 
-constexpr std::int64_t kChat   = -1001777888999LL;   // the group the bot serves
-constexpr std::int64_t kLogger = -1009999999999LL;   // LOGGER_ID
-constexpr std::int64_t kOwner  = 7;                  // OWNER_ID
-constexpr std::int64_t kCardId = 4242;               // a now-playing card to press
-constexpr std::int64_t kQueryId = 8181;              // the callback query id
+constexpr std::int64_t kChat   = -1001777888999LL;
+constexpr std::int64_t kLogger = -1009999999999LL;
+constexpr std::int64_t kOwner  = 7;
+constexpr std::int64_t kCardId = 4242;
+constexpr std::int64_t kQueryId = 8181;
 
 const char* kDbPath = "anonx_integration.db";
 
@@ -818,8 +713,6 @@ Config makeConfig() {
     return c;
 }
 
-// Runtime::start() fails when no locale loads (a bot with no strings is not a
-// bot), so the test finds the real locales/ the same way Part 3 does.
 std::string localesDir() {
     std::vector<std::string> dirs;
 #ifdef ANONX_LOCALES_DIR
@@ -840,20 +733,16 @@ Runtime::Options makeOptions() {
     Runtime::Options o;
     o.localesDir                 = localesDir();
     o.botSessionDir              = "tdlib/integration";
-    o.interactiveAssistantLogin  = false;   // never block a test on stdin
-    o.bootAssistants             = false;   // the bot half is what is under test
+    o.interactiveAssistantLogin  = false;
+    o.bootAssistants             = false;
     return o;
 }
-
-// --- reading the recorded requests -----------------------------------------
 
 json parse(const std::string& requestJson) {
     json j = json::parse(requestJson, nullptr, false);
     return (j.is_discarded() || !j.is_object()) ? json::object() : j;
 }
 
-// The text an outgoing sendMessage / editMessageText carries, dug out of
-// input_message_content.text.text exactly where TDLib expects it.
 std::string sentText(const std::string& requestJson) {
     const json j = parse(requestJson);
     if (!j.contains("input_message_content")) return std::string();
@@ -877,9 +766,6 @@ bool has(const std::string& haystack, const std::string& needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
-// The receive pump only enqueues; handlers run on a Dispatcher worker thread, so
-// an injected update is answered on another thread than the one asserting here:
-// poll (up to 5 s) instead of sleeping a fixed amount.
 bool waitFor(const std::function<bool()>& pred) {
     for (int i = 0; i < 500; ++i) {
         if (pred()) return true;
@@ -888,8 +774,6 @@ bool waitFor(const std::function<bool()>& pred) {
     return pred();
 }
 
-// TDLib delivers callback payloads base64-encoded, so a test that wants to press
-// a button with a computed payload (one carrying a chat id) has to encode it.
 std::string base64(const std::string& in) {
     static const char* kTable =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -921,8 +805,6 @@ std::string base64(const std::string& in) {
     return out;
 }
 
-// --- the updates a real Telegram would push ---------------------------------
-
 std::string messageUpdate(std::int64_t chatId, std::int64_t userId,
                           std::int64_t messageId, const std::string& text) {
     json formatted;
@@ -952,7 +834,7 @@ std::string callbackUpdate(std::int64_t chatId, std::int64_t userId,
                            const std::string& payload) {
     json data;
     data["@type"] = "callbackQueryPayloadData";
-    data["data"]  = base64(payload);   // TDLib hands the payload over base64-encoded
+    data["data"]  = base64(payload);
     json update;
     update["@type"]          = "updateNewCallbackQuery";
     update["id"]             = queryId;
@@ -963,8 +845,6 @@ std::string callbackUpdate(std::int64_t chatId, std::int64_t userId,
     return update.dump();
 }
 
-// The first recorded request of `type` addressed to `chatId` — a chat's own
-// answer, told apart from the notices the watcher sends to the log group.
 std::string requestTo(const char* type, std::int64_t chatId) {
     for (std::size_t i = 0;; ++i) {
         const std::string r = fake_td_request_of_type(type, i);
@@ -973,25 +853,19 @@ std::string requestTo(const char* type, std::int64_t chatId) {
     }
 }
 
-// --- 4a: the graph comes up and announces itself ----------------------------
-
 void checkBoot(const Config& config, Runtime& rt) {
     CHECK(rt.bot().authorized(), "the bot account authorized through the real client");
     CHECK(rt.lang().loaded("en"), "start() loaded the locale tables");
     CHECK(rt.assistantsUp() == 0, "no assistant was booted (bootAssistants = false)");
     CHECK(rt.db().chatCount() == 0, "the database starts empty");
 
-    // The startup card is the first thing a real deployment sends, and the one
-    // message whose wording is code rather than a locale key.
     const std::string card = fake_td_request_of_type("sendMessage");
     CHECK(!card.empty(), "start() announced itself");
     CHECK(int64Of(card, "chat_id") == kLogger, "the startup card goes to LOGGER_ID");
 
     const std::string text = sentText(card);
     CHECK(has(text, "<b>Bot Started</b>"), "... and says the bot started");
-    // "up/configured". Config::assistantCount() never reports fewer than one
-    // slot (same as the Python original), so the denominator comes from the
-    // config rather than from a literal.
+
     CHECK(has(text, "<b>Assistants:</b> 0/" +
                         std::to_string(config.assistantCount())),
           "... with the assistant count");
@@ -1001,8 +875,6 @@ void checkBoot(const Config& config, Runtime& rt) {
 
     std::printf("  [ok] Runtime::start(): bot authorized, locales loaded, startup card\n");
 }
-
-// --- 4b: a real command, from the receive pump to the wire -------------------
 
 void checkCommand(const Config& config, Runtime& rt, int clientId) {
     fake_td_clear_requests();
@@ -1023,20 +895,14 @@ void checkCommand(const Config& config, Runtime& rt, int clientId) {
               has(pong, "inlineKeyboardButtonTypeUrl") && has(pong, config.support_chat),
           "... and the support button is a URL button on an inline keyboard");
 
-    // The chat watcher runs alongside the command handler, and its notice is the
-    // one message that goes somewhere else.
     CHECK(rt.db().isChat(kChat), "the watcher registered the group as served");
     CHECK(!requestTo("sendMessage", kLogger).empty(), "and told the log group about it");
 
     std::printf("  [ok] /ping: injected update -> real handler -> TDLib requests\n");
 }
 
-// --- 4c: a button press, down to the voice engine ----------------------------
-
 void checkButton(Runtime& rt, FakeVoiceTransport& transport, int clientId) {
-    // A live, playing call, and the card the button belongs to. Storing the card
-    // matters: a callback carries no text, so onControls reads it back with
-    // getMessage before re-rendering the keyboard.
+
     rt.cache().addCall(kChat);
     fake_td_put_message(kChat, kCardId, 100000 + clientId, "Now Playing: Track 1");
 
@@ -1065,16 +931,12 @@ void checkButton(Runtime& rt, FakeVoiceTransport& transport, int clientId) {
     const std::string answer = fake_td_last_request_of_type("answerCallbackQuery");
     CHECK(int64Of(answer, "callback_query_id") == kQueryId, "the right query was answered");
 
-    // The point of the whole part: the transport handed to the Runtime at the top
-    // is the one the button ends up driving.
     CHECK(transport.state(kChat).pauseCount == 1,
           "the press reached the injected voice transport");
     CHECK(!rt.cache().isPlaying(kChat), "and the chat is marked paused");
 
     std::printf("  [ok] controls button: base64 payload -> engine -> edited card\n");
 }
-
-// --- 4d: shutdown ------------------------------------------------------------
 
 void checkStop(Runtime& rt) {
     fake_td_clear_requests();
@@ -1087,31 +949,21 @@ void checkStop(Runtime& rt) {
     CHECK(fake_td_count_of_type("close") >= 1, "the bot account was closed on the way out");
 
     const std::size_t after = fake_td_request_count();
-    rt.stop();   // idempotent: a second stop must not talk to Telegram again
+    rt.stop();
     CHECK(fake_td_request_count() == after, "stop() is idempotent");
 
-    // Idempotence is guarded in three independent places: Runtime's own flag,
-    // the authorized() test around the notice, and TelegramClient's
-    // closeRequested_. Runtime's flag short-circuits the other two, so the
-    // client's guard is exercised directly here — TDLib answers "close" on an
-    // already-closed account with an error, and a bot that keeps asking would
-    // stall its own shutdown behind the 5 s close wait.
     rt.bot().exit();
     CHECK(fake_td_request_count() == after, "a closed client does not ask to close again");
 
     std::printf("  [ok] Runtime::stop(): notice, close, pump joined, idempotent\n");
 }
 
-// The session can also die underneath a running bot: TDLib reports
-// authorizationStateClosed when the operator terminates it from another device
-// or the token is revoked. Stopping then must stay silent — the notice would
-// block for the full invoke timeout on a client that can no longer answer.
 void checkStopAfterSessionClosed(const Config& config, FakeVoiceTransport& transport) {
     fake_td_reset();
     Runtime rt(config, transport, makeOptions());
     CHECK(rt.start(), "a second Runtime boots (the pump restarts after stopRuntime())");
 
-    rt.bot().exit();   // the session closes behind Runtime's back
+    rt.bot().exit();
     CHECK(!rt.bot().authorized(), "the bot account is no longer authorized");
 
     fake_td_clear_requests();
@@ -1144,7 +996,7 @@ void run() {
     removeDb();
 }
 
-}  // namespace integration
+}
 
 int main() {
     LogSink::instance().init("telegram_demo_log.txt", 10u * 1024u * 1024u, 5, LogLevel::Warning);

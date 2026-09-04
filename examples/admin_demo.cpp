@@ -1,36 +1,3 @@
-// AnonXMusic C++ port — Phase 6b (admin & menu commands)
-// examples/admin_demo.cpp
-//
-// Self-checking test harness for the Phase 6b command layer, built the same way
-// as plugins_demo.cpp: the REAL AdminPlugins handlers are driven against a
-// FakeBotApi (records every Telegram call), a FakeSystemInfo (scripted host
-// metrics), a FakeVoiceTransport (scripted voice latency) and a REAL SQLite
-// database — so the whole suite runs offline with no TDLib, no NTgCalls and no
-// network, and the cards can be compared byte for byte against the locale
-// templates in locales/*.json.
-//
-// Coverage:
-//   * tables      — command groups are disjoint (from each other and from the
-//                   playback groups), moduleCount() follows them, and all nine
-//                   help topics resolve to real locale strings;
-//   * /auth       — permission branch, target by reply and by id, the
-//                   "already an admin" refusal, removal, and /authlist;
-//   * /blacklist  — sudo gate, id validation, chat vs user split, the
-//                   already/not-listed branches and the courtesy DM;
-//   * /gcast      — the -nochat/-user/-copy flag matrix, blacklist skipping,
-//                   forward vs copy, failures, and the one-at-a-time flag;
-//   * /addsudo    — owner-only gate, add/remove and their idempotent branches,
-//                   plus /sudolist and its status-message handoff;
-//   * /ping /stats — whole-card comparisons against FakeSystemInfo, the
-//                   sudo-only extended block, and the /ac + /activevc lists;
-//   * menus       — /start (private and group), /help, /settings, /lang and
-//                   every callback payload, including the permission alerts and
-//                   the language switch rendering in the NEW language;
-//   * watcher     — first-sight registration, the log-group notices, the logger
-//                   switch, and every case that must NOT register a chat.
-//
-// Exits non-zero on any failure so ctest treats a regression as a build break.
-
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -80,20 +47,13 @@ static int g_checks   = 0;
 
 namespace {
 
-constexpr std::int64_t kChat   = -1001234567890LL;  // the group under test
-constexpr std::int64_t kLogger = -1009999999999LL;  // LOGGER_ID
-constexpr std::int64_t kAdmin  = 7;                 // admin of kChat
-constexpr std::int64_t kUser   = 8;                 // plain member
-constexpr std::int64_t kOwner  = 9;                 // OWNER_ID
-constexpr std::int64_t kSudo   = 10;                // sudo user (in the DB)
+constexpr std::int64_t kChat   = -1001234567890LL;
+constexpr std::int64_t kLogger = -1009999999999LL;
+constexpr std::int64_t kAdmin  = 7;
+constexpr std::int64_t kUser   = 8;
+constexpr std::int64_t kOwner  = 9;
+constexpr std::int64_t kSudo   = 10;
 
-// ---------------------------------------------------------------------------
-// language table
-// ---------------------------------------------------------------------------
-
-// Used only when the real locales/ directory cannot be located: the verbatim
-// en.json strings for the keys this suite asserts on, so the argument
-// substitution is still checked for real.
 const char* kFallbackEn = R"JSON({
   "user_no_perms": "You? Manage the video chat? Not with those permissions, sweetie.",
   "user_not_found": "I'll need a user ID — or would you mind replying to someone's message?",
@@ -172,8 +132,6 @@ const char* kFallbackEn = R"JSON({
   "help_sudo": "<b><u>Sudo commands:</b></u>"
 })JSON";
 
-// Load the real locale files when they can be found (argv[1], the path CMake
-// compiles in, or a relative guess); otherwise fall back to the table above.
 void loadLanguages(Language& lang, const char* argvDir) {
     std::vector<std::string> candidates;
     if (argvDir && *argvDir)
@@ -195,10 +153,6 @@ void loadLanguages(Language& lang, const char* argvDir) {
     lang.loadJsonText("en", kFallbackEn);
 }
 
-// ---------------------------------------------------------------------------
-// fixture
-// ---------------------------------------------------------------------------
-
 std::string freshDbPath() {
     static int counter = 0;
     const std::string path = "anonx_admin_test_" + std::to_string(++counter) + ".db";
@@ -208,8 +162,6 @@ std::string freshDbPath() {
     return path;
 }
 
-// One fully wired bot: fakes for everything external (Telegram, host metrics,
-// voice engine) and the real Database, CacheManager, CallManager, AdminPlugins.
 struct Bot {
     std::string        dbPath;
     FakeBotApi         api;
@@ -270,8 +222,6 @@ ButtonEvent btn(std::int64_t chatId, std::int64_t userId, std::string data,
     return ev;
 }
 
-// --- readers over the recorded log ---
-
 std::string answerText(const Bot& bot) {
     const FakeBotApi::Record* r = bot.api.last("answer");
     return r ? r->text : std::string("<no callback answered>");
@@ -281,7 +231,6 @@ bool answerWasAlert(const Bot& bot) {
     return r != nullptr && r->alert;
 }
 
-// The keyboard of the most recent send/edit/markup (empty when there was none).
 InlineKeyboard lastKb(const Bot& bot) {
     for (auto it = bot.api.log.rbegin(); it != bot.api.log.rend(); ++it)
         if (it->op == "send" || it->op == "edit" || it->op == "markup")
@@ -289,7 +238,6 @@ InlineKeyboard lastKb(const Bot& bot) {
     return {};
 }
 
-// Every button of that keyboard, flattened row by row.
 std::vector<anonx::InlineButton> lastButtons(const Bot& bot) {
     std::vector<anonx::InlineButton> out;
     for (const auto& row : lastKb(bot))
@@ -298,9 +246,6 @@ std::vector<anonx::InlineButton> lastButtons(const Bot& bot) {
     return out;
 }
 
-// The text of the first send addressed to `chatId` ("" when there was none) —
-// used for the messages that do not go to the command's own chat (the log group,
-// the blacklist notice).
 std::string sentTo(const Bot& bot, std::int64_t chatId) {
     for (const auto& r : bot.api.log)
         if (r.op == "send" && r.chatId == chatId)
@@ -313,9 +258,6 @@ std::vector<std::int64_t> sorted(std::vector<std::int64_t> v) {
     return v;
 }
 
-// ---------------------------------------------------------------------------
-// command tables
-// ---------------------------------------------------------------------------
 void testTables(const Language& lang) {
     const LangView L = lang.view("en");
 
@@ -325,8 +267,6 @@ void testTables(const Language& lang) {
           "moduleCount = the eight playback groups plus the admin groups");
     CHECK(AdminPlugins::helpTopics().size() == 9u, "nine help topics");
 
-    // No command name may appear twice: routing is first-match-wins, so a
-    // duplicate would silently shadow a handler.
     std::set<std::string> seen;
     std::size_t total = 0;
     std::vector<std::vector<std::string>> groups = AdminPlugins::allCommandGroups();
@@ -342,8 +282,6 @@ void testTables(const Language& lang) {
         }
     CHECK(seen.size() == total, "every command name is registered exactly once");
 
-    // Both halves of each help topic resolve — a missing key would render as
-    // "{key}" and every card assertion below would be comparing junk.
     for (const auto& topic : AdminPlugins::helpTopics()) {
         CHECK(L[topic.first] != "{" + topic.first + "}",
               "help label " + topic.first + " resolves");
@@ -351,7 +289,6 @@ void testTables(const Language& lang) {
               "help page " + topic.second + " resolves");
     }
 
-    // The pure host-metric helpers (the fake overrides only the getters).
     CHECK(SystemInfo::formatDuration(0) == "0s", "0s");
     CHECK(SystemInfo::formatDuration(45) == "45s", "45s");
     CHECK(SystemInfo::formatDuration(90) == "1m 30s", "1m 30s");
@@ -363,29 +300,22 @@ void testTables(const Language& lang) {
     CHECK(SystemInfo::round1(7.0) == "7.0", "round1 always shows one decimal");
 }
 
-// ---------------------------------------------------------------------------
-// /auth /unauth /authlist
-// ---------------------------------------------------------------------------
 void testAuth(const Language& lang) {
     Bot bot(lang);
 
-    // --- permission ---
     bot.admin.onAuth(cmd(kChat, kUser, {"auth", "8"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"], "a member cannot /auth");
     CHECK(!bot.db.isAuth(kChat, 8), "and nothing was stored");
 
-    // --- no target ---
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth"}));
     CHECK(bot.api.lastSaid() == bot.L["user_not_found"], "/auth needs a target");
 
-    // --- by id ---
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth", "8"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("auth_added", "@u8"), "auth_added rendered");
     CHECK(bot.db.isAuth(kChat, 8), "and the user is authorized");
 
-    // --- by reply ---
     bot.api.seedMessage(kChat, 400, "hello", 11);
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth"}, 400));
@@ -393,13 +323,11 @@ void testAuth(const Language& lang) {
           "the replied-to sender is the target");
     CHECK(bot.db.isAuth(kChat, 11), "reply target authorized");
 
-    // --- an admin needs no authorization ---
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth", "7"}));
     CHECK(bot.api.lastSaid() == bot.L["auth_is_admin"], "admins are refused");
     CHECK(!bot.db.isAuth(kChat, kAdmin), "and not stored");
 
-    // --- a chat id is not a user ---
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth", "-1001"}));
     CHECK(bot.api.lastSaid() == bot.L["user_not_found"], "negative ids are not users");
@@ -407,7 +335,6 @@ void testAuth(const Language& lang) {
     bot.admin.onAuth(cmd(kChat, kAdmin, {"auth", "not-a-number"}));
     CHECK(bot.api.lastSaid() == bot.L["user_not_found"], "garbage is not a user");
 
-    // --- authlist ---
     bot.api.titles[kChat] = "Rock & Roll";
     bot.api.clear();
     bot.admin.onAuthList(cmd(kChat, kUser, {"authlist"}));
@@ -417,7 +344,6 @@ void testAuth(const Language& lang) {
     CHECK(list.find("- @u8\n") != std::string::npos, "first authorized user listed");
     CHECK(list.find("- @u11\n") != std::string::npos, "second authorized user listed");
 
-    // --- removal ---
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kAdmin, {"unauth", "8"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("auth_removed", "@u8"), "auth_removed rendered");
@@ -428,7 +354,6 @@ void testAuth(const Language& lang) {
     bot.admin.onAuthList(cmd(kChat, kUser, {"authlist"}));
     CHECK(bot.api.lastSaid() == bot.L["auth_empty"], "an empty list says so");
 
-    // --- sudo users pass the admin gate, and PMs need no permission at all ---
     bot.db.addSudo(kSudo);
     bot.api.clear();
     bot.admin.onAuth(cmd(kChat, kSudo, {"auth", "8"}));
@@ -438,19 +363,14 @@ void testAuth(const Language& lang) {
     CHECK(bot.api.lastSaid() == bot.L.fmt("auth_added", "@u12"), "no gate in private");
 }
 
-// ---------------------------------------------------------------------------
-// /blacklist /unblacklist /whitelist
-// ---------------------------------------------------------------------------
 void testBlacklist(const Language& lang) {
     Bot bot(lang);
 
-    // --- permission ---
     bot.admin.onBlacklist(cmd(kChat, kAdmin, {"blacklist", "-1001"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"],
           "a group admin is not sudo enough to blacklist");
     CHECK(!bot.db.isBlacklistedChat(-1001), "and nothing was stored");
 
-    // --- argument validation (the owner is always sudo) ---
     bot.api.clear();
     bot.admin.onBlacklist(cmd(kChat, kOwner, {"blacklist"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("bl_usage", "blacklist"),
@@ -469,7 +389,6 @@ void testBlacklist(const Language& lang) {
     bot.admin.onBlacklist(cmd(kChat, kOwner, {"blacklist", "99999999999999999999"}));
     CHECK(bot.api.lastSaid() == bot.L["bl_invalid"], "an overflowing id is rejected");
 
-    // --- a chat ---
     bot.api.clear();
     bot.admin.onBlacklist(cmd(kChat, kOwner, {"blacklist", "-1001"}));
     CHECK(bot.api.lastSaid() == bot.L["bl_added"], "chat blacklisted");
@@ -487,7 +406,6 @@ void testBlacklist(const Language& lang) {
     CHECK(bot.api.lastSaid() == bot.L["bl_not"],
           "/whitelist is an alias of /unblacklist");
 
-    // --- a user, with the courtesy notice ---
     bot.api.clear();
     bot.admin.onBlacklist(cmd(kChat, kOwner, {"blacklist", "55"}));
     CHECK(sentTo(bot, kChat) == bot.L["bl_added"], "user blacklisted");
@@ -496,7 +414,6 @@ void testBlacklist(const Language& lang) {
     CHECK(sentTo(bot, 55) == bot.L.fmt("bl_user_notify", bot.config.support_chat),
           "the user is told, with the support link");
 
-    // --- by reply, and by a DB sudo (not just the owner) ---
     bot.db.addSudo(kSudo);
     bot.api.seedMessage(kChat, 401, "spam", 66);
     bot.api.clear();
@@ -508,9 +425,6 @@ void testBlacklist(const Language& lang) {
           "and that user is notified too");
 }
 
-// ---------------------------------------------------------------------------
-// /gcast /broadcast
-// ---------------------------------------------------------------------------
 void testGcast(const Language& lang) {
     Bot bot(lang);
     bot.db.addChat(-1001);
@@ -519,7 +433,6 @@ void testGcast(const Language& lang) {
     bot.db.addUser(12);
     bot.api.seedMessage(kChat, 400, "announcement", kOwner);
 
-    // --- permission / usage ---
     bot.admin.onGcast(cmd(kChat, kUser, {"gcast"}, 400));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"], "only sudo may broadcast");
     CHECK(bot.api.copyTargets.empty(), "and nothing was relayed");
@@ -527,7 +440,6 @@ void testGcast(const Language& lang) {
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast"}));
     CHECK(bot.api.lastSaid() == bot.L["gcast_usage"], "a reply is required");
 
-    // --- groups only, forwarded ---
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast"}, 400));
     CHECK(bot.api.log.front().text == bot.L["gcast_start"], "the run announces itself");
@@ -537,7 +449,6 @@ void testGcast(const Language& lang) {
           "without -copy the message is forwarded");
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 2, 0), "gcast_end counts groups");
 
-    // --- users too, as a copy ---
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast", "-user", "-copy"}, 400));
     CHECK(sorted(bot.api.copyTargets) == std::vector<std::int64_t>({-1002, -1001, 11, 12}),
@@ -546,14 +457,12 @@ void testGcast(const Language& lang) {
           "-copy strips the forward header");
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 2, 2), "both counters reported");
 
-    // --- -nochat, case-insensitively ---
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast", "-NoChat", "-USER"}, 400));
     CHECK(sorted(bot.api.copyTargets) == std::vector<std::int64_t>({11, 12}),
           "-nochat skips the groups");
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 0, 2), "no groups counted");
 
-    // --- blacklisted targets are skipped ---
     bot.db.addBlacklist(-1002);
     bot.db.addBlacklist(12);
     bot.api.clear();
@@ -565,19 +474,16 @@ void testGcast(const Language& lang) {
     bot.db.removeBlacklist(-1002);
     bot.db.removeBlacklist(12);
 
-    // --- failures are reported as zeroes, not as a crash ---
     bot.api.copiesFail = true;
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast", "-user"}, 400));
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 0, 0), "failed relays count zero");
     bot.api.copiesFail = false;
 
-    // --- an unknown reply id relays nothing ---
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast"}, 987654));
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 0, 0), "a missing message is a no-op");
 
-    // --- the one-at-a-time flag was released by every run above ---
     bot.api.clear();
     bot.admin.onGcast(cmd(kChat, kOwner, {"gcast"}, 400));
     CHECK(bot.api.lastSaid() == bot.L.fmt("gcast_end", 2, 0),
@@ -585,19 +491,13 @@ void testGcast(const Language& lang) {
     CHECK(!bot.api.said(bot.L["gcast_active"]), "so the busy notice never appeared");
 }
 
-// ---------------------------------------------------------------------------
-// /addsudo /rmsudo /sudolist
-// ---------------------------------------------------------------------------
 void testSudoers(const Language& lang) {
     Bot bot(lang);
 
-    // The owner is sudo without being in the table (Python seeds SUDOERS with
-    // OWNER_ID) — the predicate every sudo command uses must fold that in.
     CHECK(!bot.db.isSudo(kOwner), "the owner is not stored in the sudo table");
     CHECK(guards::isSudo(bot.db, bot.config, kOwner), "but counts as sudo");
     CHECK(!guards::isSudo(bot.db, bot.config, kAdmin), "a group admin does not");
 
-    // --- granting sudo is the owner's alone ---
     bot.db.addSudo(kSudo);
     bot.admin.onSudo(cmd(kChat, kSudo, {"addsudo", "55"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"],
@@ -624,7 +524,6 @@ void testSudoers(const Language& lang) {
     bot.admin.onSudo(cmd(kChat, kOwner, {"rmsudo", "55"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("sudo_not", "@u55"), "removing twice is a no-op");
 
-    // --- /sudolist, through the status-message handoff ---
     bot.api.clear();
     bot.admin.onSudoList(cmd(kChat, kUser, {"sudolist"}));
     CHECK(bot.api.count("send") == 1u && bot.api.count("edit") == 1u,
@@ -637,14 +536,12 @@ void testSudoers(const Language& lang) {
     CHECK(list.find(bot.L["sudo_users"]) != std::string::npos, "the sudo header follows");
     CHECK(list.find("\n- @u10") != std::string::npos, "and the sudo user is listed");
 
-    // --- with an empty table the sudo header is omitted ---
     bot.db.removeSudo(kSudo);
     bot.api.clear();
     bot.admin.onSudoList(cmd(kChat, kUser, {"sudolist"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("sudo_owner", "@u9"),
           "only the owner block remains");
 
-    // --- when the placeholder cannot be edited the card is sent instead ---
     bot.api.editsFail = true;
     bot.api.clear();
     bot.admin.onSudoList(cmd(kChat, kUser, {"sudolist"}));
@@ -653,11 +550,8 @@ void testSudoers(const Language& lang) {
     bot.api.editsFail = false;
 }
 
-// ---------------------------------------------------------------------------
-// /ping /stats /ac /activevc
-// ---------------------------------------------------------------------------
 void testInfo(const Language& lang) {
-    // --- /ping ---
+
     {
         Bot bot(lang);
         bot.tp.pingValue = 42.0;
@@ -669,8 +563,6 @@ void testInfo(const Language& lang) {
               "and it is the message that becomes the card");
         CHECK(bot.sys.cpuCalls == 1, "the CPU is sampled exactly once");
 
-        // Read the one timing-dependent field back out, then compare the WHOLE
-        // card against the template — that catches any argument-order slip.
         const std::string card = bot.api.lastSaid();
         const std::string open = "<code>";
         const std::size_t from = card.find(open) + open.size();
@@ -685,7 +577,6 @@ void testInfo(const Language& lang) {
                                 "60.0", "42.0"),
               "the whole ping card matches ping_pong byte for byte");
 
-        // The card carries one URL button pointing at the support chat.
         const std::vector<anonx::InlineButton> kb = lastButtons(bot);
         CHECK(kb.size() == 1u, "one button on the ping card");
         CHECK(!kb.empty() && kb[0].text == bot.L["support"], "labelled 'Support'");
@@ -693,15 +584,12 @@ void testInfo(const Language& lang) {
                   kb[0].url == bot.config.support_chat,
               "and linking to SUPPORT_CHAT");
 
-        // With no support chat configured the button is dropped rather than
-        // shipped with an empty URL.
         bot.config.support_chat.clear();
         bot.api.clear();
         bot.admin.onPing(cmd(kChat, kUser, {"ping"}));
         CHECK(lastButtons(bot).empty(), "no support chat -> no button");
     }
 
-    // --- /stats ---
     {
         Bot bot(lang);
         bot.db.addChat(-1001);
@@ -713,7 +601,7 @@ void testInfo(const Language& lang) {
 
         const std::string expectedUser =
             bot.L.fmt("stats_user", "AnonXMusic", 1, buttons::toggleMark(false), 1, 1,
-                      2, 2, 1);   // 1 assistant, 1 bl chat, 1 bl user, 2 sudo, 2 chats, 1 user
+                      2, 2, 1);
 
         bot.admin.onStats(cmd(kChat, kUser, {"stats"}));
         CHECK(bot.api.log.front().text == bot.L["stats_fetching"], "placeholder first");
@@ -722,7 +610,6 @@ void testInfo(const Language& lang) {
               "the plain stats card matches stats_user byte for byte "
               "(owner counted as a sudo user)");
 
-        // The extended block is sudo-only.
         bot.api.clear();
         bot.admin.onStats(cmd(kChat, kOwner, {"stats"}));
         const std::string expectedSudo =
@@ -735,7 +622,6 @@ void testInfo(const Language& lang) {
                   expectedUser.find("Modules:") == std::string::npos,
               "and only that block mentions the module count");
 
-        // AUTO_LEAVE renders as a mark, not as "true".
         bot.config.auto_leave = true;
         bot.api.clear();
         bot.admin.onStats(cmd(kChat, kUser, {"stats"}));
@@ -743,7 +629,6 @@ void testInfo(const Language& lang) {
                                       buttons::toggleMark(true)) != std::string::npos,
               "auto leave shows the on mark");
 
-        // Once the owner is in the table too, they are counted once.
         bot.db.addSudo(kOwner);
         bot.api.clear();
         bot.admin.onStats(cmd(kChat, kUser, {"stats"}));
@@ -751,7 +636,6 @@ void testInfo(const Language& lang) {
               "the owner is never counted twice");
     }
 
-    // --- /ac and /activevc ---
     {
         Bot bot(lang);
         bot.admin.onActiveVc(cmd(kChat, kUser, {"ac"}));
@@ -790,13 +674,9 @@ void testInfo(const Language& lang) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// /start /help /settings /lang
-// ---------------------------------------------------------------------------
 void testMenuCommands(const Language& lang) {
     Bot bot(lang);
 
-    // --- /start in private ---
     bot.admin.onStart(cmd(kUser, kUser, {"start"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("start_pm", "@u8", "AnonXMusic"),
           "the private start card greets the sender");
@@ -814,14 +694,12 @@ void testMenuCommands(const Language& lang) {
               kb[3][0].url == "https://github.com/AnonymousX1025/AnonXMusic",
           "and the source button points at the upstream project");
 
-    // --- /start in a group ---
     bot.api.clear();
     bot.admin.onStart(cmd(kChat, kUser, {"start"}));
     CHECK(bot.api.lastSaid() == bot.L.fmt("start_gp", "AnonXMusic"),
           "the group card names the bot only");
     CHECK(lastKb(bot).size() == 3u, "and drops the source row");
 
-    // --- an unknown bot username drops the add-me button ---
     bot.api.botUser.clear();
     bot.api.clear();
     bot.admin.onStart(cmd(kUser, kUser, {"start"}));
@@ -831,7 +709,6 @@ void testMenuCommands(const Language& lang) {
           "the remaining rows keep their order");
     bot.api.botUser = "AnonXMusicBot";
 
-    // --- /help ---
     bot.api.clear();
     bot.admin.onHelp(cmd(kChat, kUser, {"help"}));
     CHECK(bot.api.lastSaid() == bot.L["help_menu"], "the help body is the menu text");
@@ -843,7 +720,6 @@ void testMenuCommands(const Language& lang) {
     CHECK(!lastButtons(bot).empty() && lastButtons(bot)[0].text == bot.L["help_0"],
           "and labelled from the locale table");
 
-    // --- /settings ---
     bot.api.clear();
     bot.admin.onSettings(cmd(kChat, kUser, {"settings"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"], "a member cannot open settings");
@@ -867,7 +743,6 @@ void testMenuCommands(const Language& lang) {
     CHECK(bot.api.lastSaid() == bot.L.fmt("start_settings", "AnonXMusic"),
           "a sudo user may open them without being an admin");
 
-    // --- /lang ---
     bot.api.clear();
     bot.admin.onLang(cmd(kChat, kUser, {"lang"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"], "a member cannot change language");
@@ -892,11 +767,8 @@ void testMenuCommands(const Language& lang) {
     CHECK(offered == data.size() - 2, "every button but back/close offers a language");
 }
 
-// ---------------------------------------------------------------------------
-// the menu callbacks
-// ---------------------------------------------------------------------------
 void testCallbacks(const Language& lang) {
-    // --- close / start / help ---
+
     {
         Bot bot(lang);
         bot.admin.onMenu(btn(kChat, kUser, "close"));
@@ -935,7 +807,6 @@ void testCallbacks(const Language& lang) {
         bot.admin.onMenu(btn(kChat, kUser, "help 8"));
         CHECK(bot.api.lastSaid() == bot.L["help_sudo"], "'help 8' is the last page");
 
-        // Out-of-range or unparsable indexes are answered and ignored.
         for (const char* payload : {"help 9", "help -1", "help x"}) {
             bot.api.clear();
             bot.admin.onMenu(btn(kChat, kUser, payload));
@@ -943,7 +814,6 @@ void testCallbacks(const Language& lang) {
                   std::string("a bad help payload is ignored: ") + payload);
         }
 
-        // Payloads that carry no action at all do nothing whatsoever.
         bot.api.clear();
         bot.admin.onMenu(btn(kChat, kUser, ""));
         CHECK(bot.api.log.empty(), "an empty payload is a no-op");
@@ -952,7 +822,6 @@ void testCallbacks(const Language& lang) {
         CHECK(bot.api.log.empty(), "so is a namespace with no action");
     }
 
-    // --- settings toggles ---
     {
         Bot bot(lang);
         bot.admin.onMenu(btn(kChat, kUser, "settings menu"));
@@ -996,7 +865,6 @@ void testCallbacks(const Language& lang) {
         CHECK(bot.api.log.empty(), "an unknown toggle changes nothing");
     }
 
-    // --- the language switch ---
     {
         Bot bot(lang);
 
@@ -1009,15 +877,13 @@ void testCallbacks(const Language& lang) {
               "picking the current language just says so");
         CHECK(bot.api.count("edit") == 0u, "and edits nothing");
 
-        // Pick any other language that actually loaded.
         std::string target;
         for (const auto& entry : Language::allCodes())
             if (entry.first != "en" && lang.loaded(entry.first)) {
                 target = entry.first;
                 break;
             }
-        // With the built-in fallback table only "en" exists, so the switch can
-        // only be exercised when the real locales/ directory was found.
+
         CHECK(lang.codes().size() < 2u || !target.empty(),
               "when several locales are loaded, one of them is not English");
         if (!target.empty()) {
@@ -1043,15 +909,12 @@ void testCallbacks(const Language& lang) {
             CHECK(!lastButtons(bot).empty() && lastButtons(bot)[0].text == N["back"],
                   "and even the button labels follow the new language");
 
-            // Every later card in this chat is rendered in that language too.
             bot.api.clear();
             bot.admin.onHelp(cmd(kChat, kUser, {"help"}));
             CHECK(bot.api.lastSaid() == N["help_menu"],
                   "the chat's language now drives every card");
         }
 
-        // A payload naming a language whose file never loaded is ignored: no
-        // button can produce one, so it is a stale or hand-made press.
         const std::string before = bot.db.getLang(kChat);
         bot.api.clear();
         bot.admin.onMenu(btn(kChat, kAdmin, "lang set qq"));
@@ -1060,16 +923,12 @@ void testCallbacks(const Language& lang) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// /logger and the chat watcher
-// ---------------------------------------------------------------------------
 void testWatcher(const Language& lang) {
     Bot bot(lang);
     const LangView L = lang.view(lang.defaultCode());
 
     CHECK(bot.db.getLoggerEnabled(), "logging is on by default");
 
-    // --- a new private user ---
     bot.api.usernames[kUser] = "bob";
     bot.admin.onSeen(cmd(kUser, kUser, {"start"}));
     CHECK(bot.db.isUser(kUser), "the user is now served");
@@ -1078,18 +937,15 @@ void testWatcher(const Language& lang) {
     CHECK(sentTo(bot, kLogger) == L.fmt("log_user", kUser, "@u8", "@bob"),
           "log_user carries id, mention and @username");
 
-    // --- and never again ---
     bot.api.clear();
     bot.admin.onSeen(cmd(kUser, kUser, {"help"}));
     CHECK(bot.api.log.empty(), "a known user is logged only once");
 
-    // --- a user without a username ---
     bot.api.clear();
     bot.admin.onSeen(cmd(21, 21, {"start"}));
     CHECK(sentTo(bot, kLogger) == L.fmt("log_user", 21, "@u21", "-"),
           "a missing username renders as '-'");
 
-    // --- a new group ---
     bot.api.clear();
     bot.admin.onSeen(cmd(kChat, kUser, {"play", "song"}));
     CHECK(bot.db.isChat(kChat), "the chat is now served");
@@ -1099,7 +955,6 @@ void testWatcher(const Language& lang) {
     bot.admin.onSeen(cmd(kChat, kAdmin, {"skip"}));
     CHECK(bot.api.log.empty(), "a known chat is logged only once");
 
-    // --- an anonymous admin has no user id ---
     bot.api.clear();
     bot.api.titles[-1005] = "Anon <Group> & Co";
     bot.admin.onSeen(cmd(-1005, 0, {"play"}));
@@ -1108,7 +963,6 @@ void testWatcher(const Language& lang) {
               L.fmt("log_chat", -1005, Plugins::htmlEscape("Anon <Group> & Co"), 0, "-"),
           "the title is escaped and the missing user renders as '-'");
 
-    // --- what must NOT be registered ---
     bot.api.clear();
     bot.admin.onSeen(cmd(kLogger, kUser, {"anything"}));
     CHECK(!bot.db.isChat(kLogger) && bot.api.log.empty(),
@@ -1126,7 +980,6 @@ void testWatcher(const Language& lang) {
     bot.admin.onSeen(cmd(-1007, 77, {"anything"}));
     CHECK(!bot.db.isChat(-1007), "a blacklisted user cannot grow the chat list either");
 
-    // --- the logger switch only silences the notice ---
     bot.db.setLoggerEnabled(false);
     bot.api.clear();
     bot.admin.onSeen(cmd(-1008, kUser, {"anything"}));
@@ -1134,7 +987,6 @@ void testWatcher(const Language& lang) {
     CHECK(bot.api.log.empty(), "but nothing is posted");
     bot.db.setLoggerEnabled(true);
 
-    // --- and an unconfigured log group is not an error ---
     bot.config.logger_id = 0;
     bot.api.clear();
     bot.admin.onSeen(cmd(-1009, kUser, {"anything"}));
@@ -1142,7 +994,6 @@ void testWatcher(const Language& lang) {
           "with no LOGGER_ID the notice is simply skipped");
     bot.config.logger_id = kLogger;
 
-    // --- /logger ---
     bot.api.clear();
     bot.admin.onLogger(cmd(kChat, kAdmin, {"logger", "off"}));
     CHECK(bot.api.lastSaid() == bot.L["user_no_perms"], "the switch is sudo-only");
@@ -1172,15 +1023,13 @@ void testWatcher(const Language& lang) {
     CHECK(bot.db.getLoggerEnabled(), "and back on again");
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
     Language lang;
     loadLanguages(lang, argc > 1 ? argv[1] : nullptr);
     lang.setDefault("en");
 
-    // Guard against a vacuous run: every assertion below compares against a
-    // resolved template, so an empty table would make them trivially true.
     const LangView L = lang.view("en");
     CHECK(L["ping_pong"].find("Pong!") != std::string::npos,
           "the language table really is loaded");

@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 4
-// telegram_client.cpp — authorization state machine + high-level operations.
-
 #include "anonx/telegram_client.hpp"
 
 #include <nlohmann/json.hpp>
@@ -23,7 +20,6 @@ using nlohmann::json;
 
 Logger log() { return Logger("anonx.telegram"); }
 
-// Safe string-field read: returns "" unless the key holds a string.
 std::string strField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key) && j[key].is_string()) {
         return j[key].get<std::string>();
@@ -31,8 +27,6 @@ std::string strField(const json& j, const char* key) {
     return std::string();
 }
 
-// Safe int64 read from a numeric field. With real nlohmann this keeps the full
-// 64-bit range (ids can exceed 2^53), as numbers are stored as int64 not double.
 std::int64_t intField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key)) {
         const auto& val = j[key];
@@ -55,7 +49,6 @@ TelegramClient::Me parseUser(const json& u) {
     m.id = intField(u, "id");
     m.firstName = strField(u, "first_name");
 
-    // TDLib >=1.8 exposes usernames.active_usernames[]; older builds use username.
     if (u.contains("usernames") && u["usernames"].is_object()) {
         const json& un = u["usernames"];
         if (un.contains("active_usernames") && un["active_usernames"].is_array() &&
@@ -71,13 +64,6 @@ TelegramClient::Me parseUser(const json& u) {
     return m;
 }
 
-// --- helpers added for the integration phase -----------------------------
-
-// Standard base64. TDLib's JSON interface transports `bytes` fields base64
-// encoded, and inlineKeyboardButtonTypeCallback.data is such a field — so a
-// button payload must be encoded on the way out. The Dispatcher already does the
-// mirror-image decode on the way in (base64Decode in dispatcher.cpp); if only
-// one side is done the buttons silently stop matching their handlers.
 std::string base64Encode(const std::string& in) {
     static const char* kAlphabet =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -109,8 +95,6 @@ std::string base64Encode(const std::string& in) {
     return out;
 }
 
-// Serialize an InlineKeyboard into TDLib's replyMarkupInlineKeyboard. Returns a
-// null json when the keyboard is empty, which is how "no markup" is expressed.
 json toReplyMarkup(const InlineKeyboard& kb) {
     if (kb.empty()) return json();
 
@@ -125,9 +109,7 @@ json toReplyMarkup(const InlineKeyboard& kb) {
                     type["url"] = b.url;
                     break;
                 case InlineButton::Kind::Copy:
-                    // TDLib >= 1.8.36. Older builds reject the @type; such a
-                    // button is cosmetic (it only offers a copy shortcut), so a
-                    // failed edit degrades to no keyboard rather than no message.
+
                     type["@type"] = "inlineKeyboardButtonTypeCopyText";
                     type["text"] = b.copy;
                     break;
@@ -152,9 +134,6 @@ json toReplyMarkup(const InlineKeyboard& kb) {
     return markup;
 }
 
-// Turn HTML into a TDLib formattedText using the library's own synchronous
-// parser, mirroring Pyrogram's ParseMode.HTML. Falls back to unformatted text so
-// a malformed tag can never swallow the message.
 json parseHtml(const std::string& html) {
     json req;
     req["@type"] = "parseTextEntities";
@@ -195,9 +174,6 @@ std::string htmlEscapeText(const std::string& s) {
     return out;
 }
 
-// Opening/closing HTML tags for a TDLib text-entity type. Returns false for
-// entity types with no HTML representation (mentions, hashtags, bot commands and
-// the like are plain text as far as re-rendering goes).
 bool entityTags(const json& type, std::string& open, std::string& close) {
     const std::string t = strField(type, "@type");
     if (t == "textEntityTypeBold")          { open = "<b>";  close = "</b>";  return true; }
@@ -222,7 +198,6 @@ bool entityTags(const json& type, std::string& open, std::string& close) {
     return false;
 }
 
-// Re-render a TDLib formattedText as HTML.
 std::string formattedTextToHtml(const json& formatted) {
     const std::string text = strField(formatted, "text");
     if (text.empty()) return std::string();
@@ -246,7 +221,7 @@ std::string formattedTextToHtml(const json& formatted) {
     });
 
     std::string out;
-    std::vector<std::pair<int, std::string>> openSpans;  // end position, close tag
+    std::vector<std::pair<int, std::string>> openSpans;
     std::size_t nextSpan = 0;
     int utf16 = 0;
 
@@ -268,7 +243,7 @@ std::string formattedTextToHtml(const json& formatted) {
         const unsigned char c = static_cast<unsigned char>(text[i]);
         std::size_t bytes = 1;
         int units = 1;
-        if (c >= 0xF0)      { bytes = 4; units = 2; }   // outside the BMP: surrogate pair
+        if (c >= 0xF0)      { bytes = 4; units = 2; }
         else if (c >= 0xE0) { bytes = 3; }
         else if (c >= 0xC0) { bytes = 2; }
         if (i + bytes > text.size()) bytes = text.size() - i;
@@ -290,7 +265,6 @@ std::string formattedTextToHtml(const json& formatted) {
     return out;
 }
 
-// Find the text/caption of a message object, whatever content type it carries.
 const json* messageFormattedText(const json& message) {
     if (!message.is_object() || !message.contains("content") ||
         !message["content"].is_object()) {
@@ -313,7 +287,7 @@ bool isOk(const std::string& responseJson) {
     return t != "error" && !t.empty();
 }
 
-}  // namespace
+}
 
 TelegramClient::TelegramClient(Options opts) : opts_(std::move(opts)) {}
 
@@ -340,8 +314,6 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
 
     const std::string type = strField(j, "@type");
 
-    // Locate an authorization-state object, whether delivered as an
-    // updateAuthorizationState or as a bare authorizationState* response.
     const json* authState = nullptr;
     if (type == "updateAuthorizationState" && j.contains("authorization_state")) {
         authState = &j["authorization_state"];
@@ -360,7 +332,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
     }
 
     if (!authState) {
-        // Not an auth message — hand it to the observer (Dispatcher etc.).
+
         TdClient::UpdateHandler obs;
         {
             std::lock_guard<std::mutex> lk(observerMutex_);
@@ -381,7 +353,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         p["database_encryption_key"] = "";
         p["use_file_database"] = true;
         p["use_chat_info_database"] = true;
-        p["use_message_database"] = false;   // lightweight: no history on disk
+        p["use_message_database"] = false;
         p["use_secret_chats"] = false;
         p["api_id"] = opts_.apiId;
         p["api_hash"] = opts_.apiHash;
@@ -392,7 +364,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         client_.send(p.dump());
 
     } else if (st == "authorizationStateWaitEncryptionKey") {
-        // Only present on older TDLib versions.
+
         json p;
         p["@type"] = "checkDatabaseEncryptionKey";
         p["encryption_key"] = "";
@@ -414,7 +386,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
                 std::fflush(stderr);
                 std::getline(std::cin, phone);
             }
-            // Trim trailing and leading whitespace
+
             while (!phone.empty() && (phone.back() == '\r' || phone.back() == '\n' || phone.back() == ' ')) phone.pop_back();
             std::size_t s = 0;
             while (s < phone.size() && (phone[s] == ' ' || phone[s] == '\t')) ++s;
@@ -434,7 +406,7 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         }
 
     } else if (st == "authorizationStateWaitCode") {
-        // First-run interactive login for a userbot.
+
         if (authState->contains("code_info") && (*authState)["code_info"].is_object()) {
             const json& ci = (*authState)["code_info"];
             std::string deliveryType = strField(ci["type"], "@type");
@@ -497,12 +469,11 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
     } else if (st == "authorizationStateClosed") {
         setStatus(Status::Closed);
     }
-    // authorizationStateClosing / LoggingOut: transient, wait for Closed.
+
 }
 
 bool TelegramClient::boot(int timeoutMs) {
-    // Installing the handler flushes any authorization update TDLib already
-    // emitted, so the state machine starts immediately.
+
     client_.setUpdateHandler([this](const std::string& u) { onUpdate(u); });
 
     {
@@ -626,7 +597,6 @@ std::int64_t TelegramClient::sendPhoto(std::int64_t chatId, const std::string& p
         return intField(j, "id");
     }
 
-    // Fallback to text sendMessage if photo failed
     return sendMessage(chatId, captionHtml, kb);
 }
 
@@ -642,7 +612,6 @@ bool TelegramClient::editMessageText(std::int64_t chatId, std::int64_t messageId
     const std::string resp = client_.invoke(req.dump());
     if (isOk(resp)) return true;
 
-    // Fallback: message might be a photo/media with caption
     json reqCap;
     reqCap["@type"] = "editMessageCaption";
     reqCap["chat_id"] = chatId;
@@ -719,10 +688,10 @@ bool TelegramClient::forwardMessages(std::int64_t fromChatId,
 
     json req;
     req["@type"] = "forwardMessages";
-    req["chat_id"] = toChatId;          // destination
-    req["from_chat_id"] = fromChatId;   // source
+    req["chat_id"] = toChatId;
+    req["from_chat_id"] = fromChatId;
     req["message_ids"] = ids;
-    req["send_copy"] = sendCopy;        // true == message.copy() (no "forwarded from")
+    req["send_copy"] = sendCopy;
     req["remove_caption"] = false;
 
     json j = json::parse(client_.invoke(req.dump()), nullptr, false);
@@ -826,4 +795,4 @@ std::string TelegramClient::getChatMemberStatus(std::int64_t chatId, std::int64_
     return std::string();
 }
 
-}  // namespace anonx
+}

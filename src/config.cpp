@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 2
-// config.cpp — implementation of Config: .env parsing + environment loading.
-
 #include "anonx/config.hpp"
 
 #include <algorithm>
@@ -13,8 +10,6 @@
 namespace anonx {
 namespace {
 
-// Trim leading/trailing ASCII whitespace, including a trailing '\r' left behind
-// by Windows (CRLF) line endings.
 std::string trim(const std::string& s) {
     std::size_t b = 0;
     std::size_t e = s.size();
@@ -24,8 +19,6 @@ std::string trim(const std::string& s) {
     return s.substr(b, e - b);
 }
 
-// Strip a single pair of matching surrounding quotes (' or "), if present.
-// The value's interior is left untouched — important for session strings/keys.
 std::string stripQuotes(const std::string& s) {
     if (s.size() >= 2) {
         char f = s.front();
@@ -43,29 +36,24 @@ std::string toLower(std::string s) {
     return s;
 }
 
-// Parse a .env file into a key->value map. Rules:
-//   * blank lines and lines whose first non-space char is '#' are ignored
-//   * an optional leading "export " is stripped
-//   * the line is split on the FIRST '=' only (so '=' in the value survives)
-//   * key and value are trimmed; the value then has one layer of quotes removed
 std::unordered_map<std::string, std::string> parseEnvFile(const std::string& path) {
     std::unordered_map<std::string, std::string> out;
     if (path.empty()) return out;
 
     std::ifstream in(path);
-    if (!in) return out;  // missing .env is not an error
+    if (!in) return out;
 
     std::string line;
     while (std::getline(in, line)) {
         std::string t = trim(line);
         if (t.empty() || t[0] == '#') continue;
 
-        if (t.rfind("export ", 0) == 0) {  // starts with "export "
+        if (t.rfind("export ", 0) == 0) {
             t = trim(t.substr(7));
         }
 
         std::size_t eq = t.find('=');
-        if (eq == std::string::npos) continue;  // not a KEY=VALUE line
+        if (eq == std::string::npos) continue;
 
         std::string key = trim(t.substr(0, eq));
         if (key.empty()) continue;
@@ -76,9 +64,6 @@ std::unordered_map<std::string, std::string> parseEnvFile(const std::string& pat
     return out;
 }
 
-// Look up a key: real environment wins, then the .env map, then the default.
-// (Matches python-dotenv load_dotenv(override=False): pre-existing env vars are
-// not overwritten by the file.)
 class EnvSource {
 public:
     explicit EnvSource(std::unordered_map<std::string, std::string> dotenv)
@@ -91,8 +76,6 @@ public:
         return def;
     }
 
-    // Robust integer read: empty/unparseable falls back to `def` (unlike Python's
-    // int("") which would throw).
     std::int64_t integer(const char* key, std::int64_t def) const {
         std::string v = str(key);
         if (v.empty()) return def;
@@ -105,7 +88,6 @@ public:
         }
     }
 
-    // Mirrors config.py's `getenv(...).lower() == "true"`.
     bool boolean(const char* key, bool def) const {
         std::string v = str(key);
         if (v.empty()) return def;
@@ -116,7 +98,7 @@ private:
     std::unordered_map<std::string, std::string> dotenv_;
 };
 
-}  // namespace
+}
 
 Config Config::load(const std::string& envFile) {
     EnvSource env(parseEnvFile(envFile));
@@ -135,7 +117,6 @@ Config Config::load(const std::string& envFile) {
     c.session_name = env.str("SESSION_NAME");
     c.data_dir     = env.str("DATA_DIR", env.str("SESSION_DIR", ""));
 
-    // TDLib uses disk sessions; if SESSION is not set, allow SESSION_NAME or DATA_DIR
     if (c.session1.empty()) {
         if (!c.session_name.empty()) {
             c.session1 = c.session_name;
@@ -150,15 +131,12 @@ Config Config::load(const std::string& envFile) {
         c.data_dir = "./data/tdlib_session";
     }
 
-    // Assistant phone numbers for TDLib authentication
     c.phone1 = env.str("PHONE_NUMBER");
     c.phone2 = env.str("PHONE_NUMBER2");
     c.phone3 = env.str("PHONE_NUMBER3");
 
-    // MONGO_URL -> DB_PATH for the SQLite port.
     c.db_path = env.str("DB_PATH", "anonx.db");
 
-    // config.py: int(getenv("DURATION_LIMIT", 60)) * 60  (stored in seconds)
     c.duration_limit_seconds = static_cast<int>(env.integer("DURATION_LIMIT", 60)) * 60;
     c.queue_limit    = static_cast<int>(env.integer("QUEUE_LIMIT", 20));
     c.playlist_limit = static_cast<int>(env.integer("PLAYLIST_LIMIT", 20));
@@ -173,7 +151,6 @@ Config Config::load(const std::string& envFile) {
 
     c.lang_code = env.str("LANG_CODE", "en");
 
-    // COOKIES_URL: space-separated; keep only batbin.me links (as in config.py).
     {
         std::string raw = env.str("COOKIES_URL");
         std::istringstream iss(raw);
@@ -222,8 +199,7 @@ int Config::assistantCount() const {
 
 std::vector<std::string> Config::assistantPhones() const {
     std::vector<std::string> out;
-    // Slot order matters: assistant 1 is the one Database::assistant() hands out
-    // first, so its phone must stay in that position.
+
     for (const std::string* p : {&phone1, &phone2, &phone3}) {
         if (!p->empty()) out.push_back(*p);
     }
@@ -250,9 +226,9 @@ std::string Config::redactedSummary() const {
        << " data_dir=" << data_dir
        << " | secrets set: api_hash=" << yn(!api_hash.empty())
        << " bot_token=" << yn(!bot_token.empty())
-       // Count only — a phone number is personal data and never gets logged.
+
        << " phones=" << assistantPhones().size();
     return os.str();
 }
 
-}  // namespace anonx
+}

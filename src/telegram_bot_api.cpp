@@ -1,15 +1,8 @@
-// AnonXMusic C++ port — Integration phase
-// telegram_bot_api.cpp — see telegram_bot_api.hpp.
-
 #include "anonx/telegram_bot_api.hpp"
 
 namespace anonx {
 namespace {
 
-// Same escaping the command layer uses (Plugins::htmlEscape), duplicated here as
-// a three-line local rather than pulling the plugin header into the Telegram
-// layer: a display name can contain '<' or '&' and would otherwise break the
-// surrounding markup.
 std::string escape(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -24,7 +17,7 @@ std::string escape(const std::string& s) {
     return out;
 }
 
-}  // namespace
+}
 
 TelegramBotApi::TelegramBotApi(TelegramClient& bot) : bot_(bot) {}
 
@@ -64,7 +57,7 @@ std::string TelegramBotApi::getMessageText(std::int64_t chatId, std::int64_t mes
 
 bool TelegramBotApi::copyMessage(std::int64_t fromChatId, std::int64_t messageId,
                                  std::int64_t toChatId) {
-    // send_copy=true — no "forwarded from" header, matching message.copy().
+
     return bot_.forwardMessages(fromChatId, {messageId}, toChatId, true);
 }
 
@@ -114,7 +107,7 @@ std::string TelegramBotApi::chatTitle(std::int64_t chatId) {
         if (it != chatTitles_.end()) return it->second;
     }
     const std::string title = bot_.chatTitle(chatId);
-    if (title.empty()) return title;   // don't memoise a failed lookup
+    if (title.empty()) return title;
 
     std::lock_guard<std::mutex> lk(cacheMutex_);
     if (chatTitles_.size() >= kCacheLimit) chatTitles_.clear();
@@ -129,7 +122,7 @@ TelegramClient::UserInfo TelegramBotApi::user(std::int64_t userId) {
         if (it != users_.end()) return it->second;
     }
     const TelegramClient::UserInfo info = bot_.getUser(userId);
-    if (!info.found) return info;      // don't memoise a failed lookup
+    if (!info.found) return info;
 
     std::lock_guard<std::mutex> lk(cacheMutex_);
     if (users_.size() >= kCacheLimit) users_.clear();
@@ -144,7 +137,7 @@ std::string TelegramBotApi::userUsername(std::int64_t userId) {
 std::string TelegramBotApi::userMention(std::int64_t userId) {
     const TelegramClient::UserInfo info = user(userId);
     if (!info.found || info.firstName.empty()) {
-        // Fall back to the id-only mention from BotApi — still a working link.
+
         return BotApi::userMention(userId);
     }
     return "<a href=\"tg://user?id=" + std::to_string(userId) + "\">" +
@@ -155,4 +148,4 @@ std::string TelegramBotApi::messageLink(std::int64_t chatId, std::int64_t messag
     return bot_.messageLink(chatId, messageId);
 }
 
-}  // namespace anonx
+}

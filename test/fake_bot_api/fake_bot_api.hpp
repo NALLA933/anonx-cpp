@@ -1,14 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// test/fake_bot_api/fake_bot_api.hpp
-//
-// A recording, scriptable BotApi for offline testing. Because BotApi is a plain
-// abstract C++ class (like VoiceTransport in Phase 5), the fake is just a
-// subclass — no TDLib, no network, no fake shared library needed.
-//
-// It keeps an ordered log of every operation, a per-message text store (so
-// getMessageText works exactly as it would against Telegram), and a scripted
-// membership table that drives the admin guards.
-
 #ifndef ANONX_TEST_FAKE_BOT_API_HPP
 #define ANONX_TEST_FAKE_BOT_API_HPP
 
@@ -25,34 +14,30 @@ namespace anonx {
 class FakeBotApi : public BotApi {
 public:
     struct Record {
-        std::string    op;          // "send" | "edit" | "markup" | "delete" |
-                                    // "deleteMany" | "answer" | "leave" |
-                                    // "copy" | "forward"
+        std::string    op;
+
         std::int64_t   chatId = 0;
-        std::int64_t   messageId = 0;  // message id, or the query id for "answer"
+        std::int64_t   messageId = 0;
         std::string    text;
         InlineKeyboard kb;
-        bool           alert = false;  // "answer" only
+        bool           alert = false;
     };
 
-    // --- dials ---
-    bool editsFail = false;         // make editMessageText() fail (message gone)
-    bool copiesFail = false;        // fail copy/forward (e.g. user blocked the bot)
+    bool editsFail = false;
+    bool copiesFail = false;
     std::int64_t nextMessageId = 1000;
     std::string defaultStatus = "chatMemberStatusMember";
     std::string botDisplayName = "AnonXMusic";
     std::string botUser = "AnonXMusicBot";
 
-    // --- recorded state ---
     std::vector<Record> log;
     std::map<std::pair<std::int64_t, std::int64_t>, std::string> texts;
     std::map<std::pair<std::int64_t, std::int64_t>, std::string> memberStatus;
     std::map<std::pair<std::int64_t, std::int64_t>, std::int64_t> senders;
-    std::map<std::int64_t, std::string> titles;     // chatId  -> title
-    std::map<std::int64_t, std::string> usernames;  // userId   -> @username
-    std::vector<std::int64_t> copyTargets;         // chats copyMessage() reached
+    std::map<std::int64_t, std::string> titles;
+    std::map<std::int64_t, std::string> usernames;
+    std::vector<std::int64_t> copyTargets;
 
-    // Grant admin (or any other status) to a user in a chat.
     void setStatus(std::int64_t chatId, std::int64_t userId, std::string status) {
         memberStatus[{chatId, userId}] = std::move(status);
     }
@@ -60,14 +45,12 @@ public:
         setStatus(chatId, userId, "chatMemberStatusAdministrator");
     }
 
-    // Script a message that already exists (e.g. the one a command replies to).
     void seedMessage(std::int64_t chatId, std::int64_t messageId, std::string text,
                      std::int64_t senderId = 0) {
         texts[{chatId, messageId}] = std::move(text);
         senders[{chatId, messageId}] = senderId;
     }
 
-    // --- BotApi ---
     std::int64_t sendMessage(std::int64_t chatId, const std::string& html,
                              const InlineKeyboard& kb = {}) override {
         const std::int64_t id = nextMessageId++;
@@ -141,7 +124,6 @@ public:
         return it == memberStatus.end() ? defaultStatus : it->second;
     }
 
-    // Short and greppable, so assertions can look for the mention in a card.
     std::string userMention(std::int64_t userId) override {
         return "@u" + std::to_string(userId);
     }
@@ -159,7 +141,6 @@ public:
         return it == usernames.end() ? std::string() : it->second;
     }
 
-    // --- queries used by the tests ---
     void clear() { log.clear(); copyTargets.clear(); }
 
     const Record* last(const std::string& op = "") const {
@@ -177,7 +158,6 @@ public:
         return n;
     }
 
-    // Did any send/edit contain `needle`?
     bool said(const std::string& needle) const {
         for (const Record& r : log)
             if ((r.op == "send" || r.op == "edit") &&
@@ -186,7 +166,6 @@ public:
         return false;
     }
 
-    // Text of the most recent send/edit ("" if there was none).
     std::string lastSaid() const {
         for (auto it = log.rbegin(); it != log.rend(); ++it)
             if (it->op == "send" || it->op == "edit")
@@ -194,7 +173,6 @@ public:
         return {};
     }
 
-    // Every callback_data in the most recent keyboard, flattened row by row.
     std::vector<std::string> lastKeyboardData() const {
         for (auto it = log.rbegin(); it != log.rend(); ++it) {
             if (it->op == "send" || it->op == "edit" || it->op == "markup") {
@@ -209,8 +187,7 @@ public:
     }
 
 private:
-    // Shared body of copyMessage/forwardMessage: both relay an existing message
-    // into another chat and differ only in the op they record.
+
     bool relay(const char* op, std::int64_t fromChatId, std::int64_t messageId,
                std::int64_t toChatId) {
         if (copiesFail)
@@ -226,6 +203,6 @@ private:
     }
 };
 
-}  // namespace anonx
+}
 
-#endif  // ANONX_TEST_FAKE_BOT_API_HPP
+#endif

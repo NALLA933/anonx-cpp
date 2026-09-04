@@ -1,29 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// examples/plugins_demo.cpp
-//
-// Self-checking test harness for the Phase 6a command layer. It drives the real
-// Plugins handlers against a FakeBotApi (records every Telegram call), a
-// FakeYouTube (scripted search/playlist/download), a FakeVoiceTransport
-// (scripted play/pause results) and a REAL SQLite Database, so the whole thing
-// runs offline: no TDLib, no NTgCalls, no yt-dlp, no network.
-//
-// Coverage:
-//   * guards        — admin/auth/sudo resolution, URL extraction, flag parsing,
-//                     and every PlayGate branch of the /play preflight;
-//   * /play         — start, queue, playlist, m3u8, video, duration limit,
-//                     search miss, cmd-delete, and the status-message handoff
-//                     ("Searching…" -> "Downloading…" -> the now-playing card,
-//                     all edits of ONE message);
-//   * admin cmds    — pause/resume (incl. the already-paused/not-paused
-//                     branches), stop, skip, loop, queue, seek/seekback;
-//   * controls      — every inline button, the queue-card variant, the "Play
-//                     Now" promotion (and its duplicate removal), permission
-//                     rejection, and expired payloads;
-//   * notices       — the download-failure / no-call error branches and the
-//                     auto-advance "downloading next" message becoming the card.
-//
-// Exits non-zero on any failure so ctest treats a regression as a build break.
-
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
@@ -69,19 +43,11 @@ static int g_checks   = 0;
 
 namespace {
 
-// A supergroup id (below -1e12, the only kind that can host a voice chat).
 constexpr std::int64_t kChat  = -1001234567890LL;
-constexpr std::int64_t kBasic = -12345LL;          // legacy group -> rejected
+constexpr std::int64_t kBasic = -12345LL;
 constexpr std::int64_t kAdmin = 7;
 constexpr std::int64_t kUser  = 8;
 
-// ---------------------------------------------------------------------------
-// language table
-// ---------------------------------------------------------------------------
-
-// Used only if the real locales/ directory cannot be located. Holds the verbatim
-// en.json strings for the keys these tests exercise, so argument substitution is
-// still checked for real.
 const char* kFallbackEn = R"JSON({
   "play_searching": "Searching...",
   "play_downloading": "Downloading...",
@@ -135,8 +101,6 @@ const char* kFallbackEn = R"JSON({
   "backward": "backward"
 })JSON";
 
-// Load the real locale files when they can be found (argv[1], the path CMake
-// compiles in, or a relative guess); otherwise fall back to the table above.
 void loadLanguages(Language& lang, const char* argvDir) {
     std::vector<std::string> candidates;
     if (argvDir && *argvDir)
@@ -158,10 +122,6 @@ void loadLanguages(Language& lang, const char* argvDir) {
     lang.loadJsonText("en", kFallbackEn);
 }
 
-// ---------------------------------------------------------------------------
-// fixture
-// ---------------------------------------------------------------------------
-
 std::string freshDbPath() {
     static int counter = 0;
     const std::string path = "anonx_plugins_test_" + std::to_string(++counter) + ".db";
@@ -171,8 +131,6 @@ std::string freshDbPath() {
     return path;
 }
 
-// One fully wired bot: fakes for everything external, the real Database, Queue,
-// CacheManager, CallManager and Plugins.
 struct Bot {
     std::string      dbPath;
     FakeBotApi       api;
@@ -191,7 +149,7 @@ struct Bot {
           plugins(Plugins::Deps{api, db, cache, queue, yt, calls, lang, config}),
           L(lang.view("en")) {
         plugins.attachCallbacks();
-        api.makeAdmin(kChat, kAdmin);   // kAdmin can manage the voice chat
+        api.makeAdmin(kChat, kAdmin);
     }
 
     ~Bot() {
@@ -236,7 +194,6 @@ ButtonEvent btn(std::int64_t chatId, std::int64_t userId, std::string data,
     return ev;
 }
 
-// The text/alert of the most recent answerCallback, safe when none was made.
 std::string answerText(const Bot& bot) {
     const FakeBotApi::Record* r = bot.api.last("answer");
     return r ? r->text : std::string("<no callback answered>");
@@ -246,7 +203,6 @@ bool answerWasAlert(const Bot& bot) {
     return r != nullptr && r->alert;
 }
 
-// Start a stream in kChat and return the now-playing card's message id.
 std::int64_t startPlaying(Bot& bot, const std::string& id = "aaa") {
     bot.yt.nextSearch = mk(id);
     bot.plugins.onPlay(cmd(kChat, kAdmin, {"play", id}));
@@ -254,14 +210,10 @@ std::int64_t startPlaying(Bot& bot, const std::string& id = "aaa") {
     return card ? card->messageId : 0;
 }
 
-// ---------------------------------------------------------------------------
-// guards
-// ---------------------------------------------------------------------------
 void testGuards(const Language& lang) {
     Bot bot(lang);
     namespace guards = anonx::guards;
 
-    // --- membership ---
     CHECK(guards::isAdmin(bot.api, kChat, kAdmin), "admin status recognised");
     CHECK(!guards::isAdmin(bot.api, kChat, kUser), "plain member is not admin");
     bot.api.setStatus(kChat, kUser, "chatMemberStatusCreator");
@@ -279,7 +231,6 @@ void testGuards(const Language& lang) {
     CHECK(!guards::adminCheck(bot.api, bot.db, false, kChat, kUser), "member fails adminCheck");
     CHECK(guards::adminCheck(bot.api, bot.db, true, kUser, kUser), "PM always passes adminCheck");
 
-    // --- url extraction + flags ---
     CHECK(guards::resolveUrl({"play", "hello"}) == "", "no url in a plain query");
     CHECK(guards::resolveUrl({"play", "https://youtu.be/abc?si=xyz"}) ==
               "https://youtu.be/abc", "?si tracking suffix trimmed");
@@ -288,7 +239,6 @@ void testGuards(const Language& lang) {
     CHECK(guards::isFlag("-f") && guards::isFlag("-v"), "-f and -v are flags");
     CHECK(!guards::isFlag("song"), "a word is not a flag");
 
-    // --- preflight gates ---
     guards::PlayRequest req;
     req.chatId       = kChat;
     req.fromUserId   = kAdmin;
@@ -377,11 +327,8 @@ void testGuards(const Language& lang) {
     bot.queue.clear(kChat);
 }
 
-// ---------------------------------------------------------------------------
-// /play
-// ---------------------------------------------------------------------------
 void testPlay(const Language& lang) {
-    // --- the happy path, and the one-message status handoff ---
+
     {
         Bot bot(lang);
         bot.yt.nextSearch = mk("aaa");
@@ -393,7 +340,6 @@ void testPlay(const Language& lang) {
         CHECK(bot.tp.totalPlays == 1, "transport started one stream");
         CHECK(bot.cache.isActiveCall(kChat), "call registered as active");
 
-        // Searching -> Downloading -> card, all edits of the SAME message.
         CHECK(bot.api.count("send") == 1, "exactly one message sent");
         CHECK(bot.api.count("edit") == 2, "two edits (downloading, card)");
         CHECK(bot.api.log[0].text == bot.L["play_searching"], "first text is 'searching'");
@@ -408,14 +354,12 @@ void testPlay(const Language& lang) {
               "card rendered from play_media with url/title/duration/mention");
         CHECK(card.message_id == id, "card id stored on the queued item");
 
-        // The fresh card carries the five transport buttons and no status row.
         const std::vector<std::string> data = bot.api.lastKeyboardData();
         CHECK(data.size() == 5, "five transport buttons");
         CHECK(data[0] == "controls resume " + std::to_string(kChat), "resume payload");
         CHECK(data[4] == "controls stop " + std::to_string(kChat), "stop payload");
     }
 
-    // --- a second request queues behind the first ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
@@ -435,7 +379,6 @@ void testPlay(const Language& lang) {
               "queued card offers Play Now for that item");
     }
 
-    // --- gates surface the right strings ---
     {
         Bot bot(lang);
         bot.plugins.onPlay(cmd(kChat, kAdmin, {"play"}));
@@ -471,7 +414,6 @@ void testPlay(const Language& lang) {
               "unhandled link -> not found");
     }
 
-    // --- a search miss and the duration limit ---
     {
         Bot bot(lang);
         bot.yt.nextSearch = std::nullopt;
@@ -479,7 +421,7 @@ void testPlay(const Language& lang) {
         CHECK(bot.api.lastSaid() == bot.L.fmt("play_not_found", bot.config.support_chat),
               "search miss -> not found");
         CHECK(bot.tp.totalPlays == 0, "nothing played");
-        // The "Searching…" message was edited, not left dangling.
+
         CHECK(bot.api.count("send") == 1 && bot.api.count("edit") == 1,
               "the status message became the error");
 
@@ -492,7 +434,6 @@ void testPlay(const Language& lang) {
         CHECK(bot.tp.totalPlays == 0, "and it never plays");
     }
 
-    // --- video, m3u8, playlist, cmd delete ---
     {
         Bot bot(lang);
         bot.yt.nextSearch = mk("vid");
@@ -543,11 +484,8 @@ void testPlay(const Language& lang) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// pause / resume / stop / skip / loop / queue / seek
-// ---------------------------------------------------------------------------
 void testAdminCommands(const Language& lang) {
-    // --- permission and "nothing playing" ---
+
     {
         Bot bot(lang);
         startPlaying(bot);
@@ -567,7 +505,6 @@ void testAdminCommands(const Language& lang) {
         CHECK(idle.api.lastSaid() == idle.L["not_playing"], "queue with no stream");
     }
 
-    // --- pause / resume ---
     {
         Bot bot(lang);
         startPlaying(bot);
@@ -593,7 +530,6 @@ void testAdminCommands(const Language& lang) {
         CHECK(bot.api.lastSaid() == bot.L["play_not_paused"], "resuming twice is caught");
     }
 
-    // --- stop ---
     {
         Bot bot(lang);
         startPlaying(bot);
@@ -605,7 +541,6 @@ void testAdminCommands(const Language& lang) {
         CHECK(bot.api.lastSaid() == bot.L.fmt("play_stopped", "@u7"), "stop reply");
     }
 
-    // --- skip advances to the queued track ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
@@ -620,7 +555,6 @@ void testAdminCommands(const Language& lang) {
         CHECK(bot.tp.totalPlays == 2, "transport started the next stream");
     }
 
-    // --- loop ---
     {
         Bot bot(lang);
         startPlaying(bot);
@@ -637,14 +571,13 @@ void testAdminCommands(const Language& lang) {
         CHECK(bot.api.lastSaid() == bot.L["loop_usage"], "garbage -> usage");
     }
 
-    // --- /queue ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
         bot.yt.nextSearch = mk("bbb");
         bot.plugins.onPlay(cmd(kChat, kAdmin, {"play", "bbb"}));
         bot.api.clear();
-        bot.plugins.onQueue(cmd(kChat, kUser, {"queue"}));   // no permission needed
+        bot.plugins.onQueue(cmd(kChat, kUser, {"queue"}));
 
         const std::string text = bot.api.lastSaid();
         const MediaItem current = *bot.queue.getCurrent(kChat);
@@ -659,10 +592,9 @@ void testAdminCommands(const Language& lang) {
               "queue card toggles pause and is marked with 'q'");
     }
 
-    // --- seek ---
     {
         Bot bot(lang);
-        startPlaying(bot, "aaa");        // duration_sec 200
+        startPlaying(bot, "aaa");
         bot.api.clear();
         bot.plugins.onSeek(cmd(kChat, kAdmin, {"seek"}));
         CHECK(bot.api.lastSaid() == bot.L.fmt("play_seek_usage", "seek"), "bare /seek -> usage");
@@ -690,7 +622,6 @@ void testAdminCommands(const Language& lang) {
         CHECK(bot.tp.state(kChat).lastSource.seekSeconds == 190,
               "clamped 10s before the end");
 
-        // A stream of unknown length cannot be seeked.
         MediaItem live = *bot.queue.getCurrent(kChat);
         live.duration_sec = 0;
         bot.queue.replaceCurrent(kChat, live);
@@ -700,13 +631,9 @@ void testAdminCommands(const Language& lang) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// the "controls …" buttons
-// ---------------------------------------------------------------------------
 void testControls(const Language& lang) {
     const std::string cid = std::to_string(kChat);
 
-    // --- the status label, and permission rejection ---
     {
         Bot bot(lang);
         const std::int64_t card = startPlaying(bot);
@@ -724,7 +651,6 @@ void testControls(const Language& lang) {
         CHECK(bot.tp.state(kChat).pauseCount == 0, "and nothing happens");
     }
 
-    // --- pause / resume from the card ---
     {
         Bot bot(lang);
         const std::int64_t card = startPlaying(bot);
@@ -754,7 +680,6 @@ void testControls(const Language& lang) {
         CHECK(bot.cache.isPlaying(kChat), "and the cache agrees");
     }
 
-    // --- replay / skip / stop ---
     {
         Bot bot(lang);
         const std::int64_t card = startPlaying(bot);
@@ -787,7 +712,6 @@ void testControls(const Language& lang) {
         CHECK(answerText(bot) == bot.L["skipped"], "toast says skipped");
     }
 
-    // --- the queue card variant edits only its markup ---
     {
         Bot bot(lang);
         startPlaying(bot);
@@ -803,7 +727,6 @@ void testControls(const Language& lang) {
               "the toggle now offers resume");
     }
 
-    // --- "Play Now" promotes a queued item and removes the duplicate ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
@@ -834,7 +757,6 @@ void testControls(const Language& lang) {
               "an unknown item id is an expired button");
     }
 
-    // --- malformed payloads ---
     {
         Bot bot(lang);
         const std::int64_t card = startPlaying(bot);
@@ -850,11 +772,8 @@ void testControls(const Language& lang) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// engine notices
-// ---------------------------------------------------------------------------
 void testNotices(const Language& lang) {
-    // --- a failed download reports through the status message ---
+
     {
         Bot bot(lang);
         bot.yt.nextSearch = mk("aaa");
@@ -865,7 +784,6 @@ void testNotices(const Language& lang) {
               "download failure surfaced with the support link");
     }
 
-    // --- no live voice chat ---
     {
         Bot bot(lang);
         bot.tp.playResult = PlayResult::NoActiveGroupCall;
@@ -875,7 +793,6 @@ void testNotices(const Language& lang) {
         CHECK(!bot.cache.isActiveCall(kChat), "and the chat is not marked active");
     }
 
-    // --- auto-advance: the "downloading next" notice becomes the next card ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
@@ -895,7 +812,6 @@ void testNotices(const Language& lang) {
               "the new card id is recorded on the item");
     }
 
-    // --- looping replays and announces ---
     {
         Bot bot(lang);
         startPlaying(bot, "aaa");
@@ -909,15 +825,13 @@ void testNotices(const Language& lang) {
     }
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
     Language lang;
     loadLanguages(lang, argc > 1 ? argv[1] : nullptr);
     lang.setDefault("en");
 
-    // Guard against a vacuous run: every assertion below compares against the
-    // resolved template, so an empty table would make them trivially true.
     const LangView L = lang.view("en");
     CHECK(L["play_media"].find("Started streaming") != std::string::npos,
           "the language table really is loaded");

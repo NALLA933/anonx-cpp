@@ -1,12 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// test/fake_youtube/fake_youtube.hpp
-//
-// A scripted YouTube service for offline testing. The real one shells out to
-// yt-dlp, which a hermetic test cannot rely on, so the three subprocess-backed
-// methods are overridden with canned results. valid()/invalid() are deliberately
-// NOT overridden — those are pure regex, so the tests still exercise the real URL
-// classification that the /play preflight depends on.
-
 #ifndef ANONX_TEST_FAKE_YOUTUBE_HPP
 #define ANONX_TEST_FAKE_YOUTUBE_HPP
 
@@ -21,12 +12,11 @@ namespace anonx {
 
 class FakeYouTube : public YouTube {
 public:
-    // --- dials ---
-    std::optional<Track> nextSearch;      // result of the next search() (nullopt = miss)
-    std::vector<Track>   nextPlaylist;    // result of the next playlist()
+
+    std::optional<Track> nextSearch;
+    std::vector<Track>   nextPlaylist;
     bool                 downloadFails = false;
 
-    // --- recorded state ---
     int         searchCalls = 0;
     int         playlistCalls = 0;
     int         downloadCalls = 0;
@@ -54,7 +44,7 @@ public:
         std::vector<Track> out = nextPlaylist;
         if (limit > 0 && static_cast<int>(out.size()) > limit)
             out.resize(static_cast<std::size_t>(limit));
-        for (Track& t : out) {   // the real playlist() stamps these too
+        for (Track& t : out) {
             t.user  = user;
             t.video = video;
         }
@@ -70,6 +60,6 @@ public:
     }
 };
 
-}  // namespace anonx
+}
 
-#endif  // ANONX_TEST_FAKE_YOUTUBE_HPP
+#endif

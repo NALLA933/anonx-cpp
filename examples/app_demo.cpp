@@ -1,8 +1,3 @@
-// AnonXMusic C++ port — Phase 2
-// app_demo.cpp — automated, non-blocking checks for Config, Logger, and App.
-// Build target: `anonx_app_demo`. (run() is deliberately not exercised here
-// because it blocks on signals.)
-
 #include "anonx/app.hpp"
 #include "anonx/cache_manager.hpp"
 #include "anonx/config.hpp"
@@ -17,7 +12,6 @@
 
 using namespace anonx;
 
-// Always-on check (unaffected by -DNDEBUG in Release builds).
 #define CHECK(cond)                                                     \
     do {                                                                \
         if (!(cond)) {                                                  \
@@ -34,19 +28,17 @@ const char* kDbPath  = "anonx_demo_app.db";
 void section(const char* name) { std::cout << "  [ok] " << name << "\n"; }
 
 void writeDemoEnv() {
-    // Deliberately tricky: a quoted value, a CRLF line, a session string whose
-    // base64 padding ends in '=' (must survive parsing), a mixed COOKIES_URL,
-    // and only two SESSION values (=> assistantCount() == 2).
+
     std::ofstream f(kEnvPath, std::ios::binary);
     f << "# demo env\n";
     f << "API_ID=12345\n";
-    f << "API_HASH=\"abcdef\"\n";                 // quotes stripped
-    f << "BOT_TOKEN=111:xyz\r\n";                  // CRLF -> '\r' trimmed
+    f << "API_HASH=\"abcdef\"\n";
+    f << "BOT_TOKEN=111:xyz\r\n";
     f << "LOGGER_ID=-100999\n";
     f << "OWNER_ID=42\n";
-    f << "SESSION=AoJ1c2VyPT09\n";                 // note trailing '=' padding
-    f << "SESSION2=BbK2\n";                          // second assistant
-    f << "  export DURATION_LIMIT=30 \n";           // export + surrounding spaces
+    f << "SESSION=AoJ1c2VyPT09\n";
+    f << "SESSION2=BbK2\n";
+    f << "  export DURATION_LIMIT=30 \n";
     f << "AUTO_LEAVE=true\n";
     f << "LANG_CODE=hi\n";
     f << "COOKIES_URL=https://batbin.me/aaa https://example.com/bbb\n";
@@ -59,7 +51,7 @@ void cleanup() {
     std::remove((std::string(kDbPath) + "-wal").c_str());
     std::remove((std::string(kDbPath) + "-shm").c_str());
 }
-}  // namespace
+}
 
 int main() {
     cleanup();
@@ -67,30 +59,28 @@ int main() {
 
     std::cout << "== Phase 2 config + skeleton: functional tests ==\n";
 
-    // ---- Config parsing ----
     {
         Config c = Config::load(kEnvPath);
         CHECK(c.api_id == 12345);
-        CHECK(c.api_hash == "abcdef");              // surrounding quotes removed
-        CHECK(c.bot_token == "111:xyz");            // trailing '\r' trimmed
+        CHECK(c.api_hash == "abcdef");
+        CHECK(c.bot_token == "111:xyz");
         CHECK(c.logger_id == -100999);
         CHECK(c.owner_id == 42);
-        CHECK(c.session1 == "AoJ1c2VyPT09");        // '=' padding preserved
+        CHECK(c.session1 == "AoJ1c2VyPT09");
         CHECK(c.session2 == "BbK2");
         CHECK(c.session3.empty());
-        CHECK(c.assistantCount() == 2);             // two sessions set
-        CHECK(c.duration_limit_seconds == 30 * 60); // minutes -> seconds
+        CHECK(c.assistantCount() == 2);
+        CHECK(c.duration_limit_seconds == 30 * 60);
         CHECK(c.auto_leave == true);
-        CHECK(c.thumb_gen == true);                 // default (absent in file)
-        CHECK(c.video_play == true);                // default
+        CHECK(c.thumb_gen == true);
+        CHECK(c.video_play == true);
         CHECK(c.lang_code == "hi");
-        CHECK(c.cookies_url.size() == 1);           // only the batbin.me link
+        CHECK(c.cookies_url.size() == 1);
         CHECK(c.cookies_url[0].find("batbin.me") != std::string::npos);
         CHECK(c.db_path == kDbPath);
         section("config: .env parsing (quotes, CRLF, '=' padding, cookie filter)");
     }
 
-    // ---- check(): required-field validation ----
     {
         Config good;
         good.api_id = 1;
@@ -99,7 +89,7 @@ int main() {
         good.logger_id = 2;
         good.owner_id = 3;
         good.session1 = "s";
-        good.check();  // must not throw
+        good.check();
 
         bool threw = false;
         Config bad = good;
@@ -113,7 +103,7 @@ int main() {
 
         threw = false;
         Config bad2 = good;
-        bad2.api_id = 0;  // 0 is "unset"
+        bad2.api_id = 0;
         try {
             bad2.check();
         } catch (const ConfigError&) {
@@ -123,38 +113,34 @@ int main() {
         section("config: check() passes when complete, throws when required missing");
     }
 
-    // ---- App boot / accessors / stop ----
     {
-        App app(kEnvPath);   // loads + validates config, inits logging
-        app.boot();          // creates dirs, opens DB, applies defaults
+        App app(kEnvPath);
+        app.boot();
 
         CHECK(app.uptimeSeconds() >= 0.0);
         CHECK(app.config().assistantCount() == 2);
 
-        // data layer is live and wired to config
         CHECK(app.db().addChat(-100500));
         CHECK(app.db().isChat(-100500));
         int a = app.db().getAssistant(-100500);
-        CHECK(a >= 1 && a <= 2);                     // within configured count
-        CHECK(app.db().getLang(-100501) == "hi");    // default from LANG_CODE
+        CHECK(a >= 1 && a <= 2);
+        CHECK(app.db().getLang(-100501) == "hi");
 
-        // ephemeral cache is live
         app.cache().addCall(-100500);
         CHECK(app.cache().isActiveCall(-100500));
 
         app.stop();
-        app.stop();  // idempotent
+        app.stop();
         section("app: boot -> db()/cache() usable -> stop() (idempotent)");
     }
 
-    // ---- logging produced output ----
     {
         std::ifstream log("log.txt");
         CHECK(log.good());
         std::string content((std::istreambuf_iterator<char>(log)),
                             std::istreambuf_iterator<char>());
-        CHECK(content.find("anonx:") != std::string::npos);   // logger name present
-        CHECK(content.find("Ready.") != std::string::npos);   // boot completed
+        CHECK(content.find("anonx:") != std::string::npos);
+        CHECK(content.find("Ready.") != std::string::npos);
         section("logger: log.txt written with expected format");
     }
 

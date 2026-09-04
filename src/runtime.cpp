@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Integration phase
-// runtime.cpp — implementation of the object graph. See runtime.hpp.
-
 #include "anonx/runtime.hpp"
 
 #include <string>
@@ -14,9 +11,6 @@ namespace {
 
 Logger log() { return Logger("anonx.runtime"); }
 
-// "https://t.me/DevilsHeavenMF" / "@DevilsHeavenMF" / "DevilsHeavenMF" -> the
-// bare username. Returns "" when the link is not a t.me user/channel link (an
-// invite link, for instance), in which case the assistants simply skip joining.
 std::string usernameFromLink(const std::string& link) {
     std::string s = link;
 
@@ -25,20 +19,16 @@ std::string usernameFromLink(const std::string& link) {
 
     const std::size_t slash = s.find('/');
     if (slash != std::string::npos) {
-        // Drop the host part ("t.me/foo" -> "foo").
+
         s = s.substr(slash + 1);
     }
     while (!s.empty() && (s.back() == '/' || s.back() == ' ')) s.pop_back();
     if (!s.empty() && s.front() == '@') s.erase(s.begin());
 
-    // Private invite links (t.me/+abc, t.me/joinchat/abc) cannot be resolved by
-    // username, and a nested path is not a username either.
     if (s.empty() || s.front() == '+' || s.find('/') != std::string::npos) return {};
     return s;
 }
 
-// Options for the bot account. The bot half never needs an interactive login:
-// a bot token authorizes in one step.
 TelegramClient::Options botOptions(const Config& config,
                                   const Runtime::Options& opts) {
     TelegramClient::Options o;
@@ -50,7 +40,7 @@ TelegramClient::Options botOptions(const Config& config,
     return o;
 }
 
-}  // namespace
+}
 
 Runtime::Runtime(const Config& config, VoiceTransport& transport, Options opts)
     : config_(config),
@@ -75,14 +65,9 @@ bool Runtime::start() {
 
     log().info(config_.redactedSummary());
 
-    // ---- data layer -------------------------------------------------------
-    // The database itself was opened by the constructor (Database's ctor is its
-    // own connect step and throws on failure); here it only learns the two
-    // config-derived defaults it needs before serving.
     db_.setDefaultLang(config_.lang_code);
     db_.setAssistantCount(config_.assistantCount());
 
-    // ---- language tables --------------------------------------------------
     const int loaded = lang_.loadDir(opts_.localesDir);
     if (loaded <= 0) {
         log().critical("no locale files found in '" + opts_.localesDir +
@@ -99,7 +84,6 @@ bool Runtime::start() {
     log().info("Loaded " + std::to_string(loaded) + " language(s); default '" +
                lang_.defaultCode() + "'");
 
-    // ---- the bot account --------------------------------------------------
     if (!bot_.boot()) {
         log().critical("bot account failed to authorize — check BOT_TOKEN");
         return false;
@@ -108,10 +92,6 @@ bool Runtime::start() {
     log().info("Bot authorized: " + me.firstName +
                (me.username.empty() ? "" : " (@" + me.username + ")"));
 
-    // ---- the assistant accounts ------------------------------------------
-    // Non-fatal by design: without an assistant the bot cannot stream, but every
-    // non-voice command still works, and this is exactly the state of a fresh
-    // deployment whose PHONE_NUMBER logins have not been done yet.
     if (opts_.bootAssistants) {
         const std::vector<std::string> phones = config_.assistantPhones();
         int assistantSlots = config_.assistantCount();
@@ -151,13 +131,6 @@ bool Runtime::start() {
         }
     }
 
-    // ---- commands and routing --------------------------------------------
-    // Created last and destroyed first: its handlers capture plugins_/admin_.
-    // The cost of being last is a short deaf window — until attach() installs the
-    // observer, TelegramClient::onUpdate() has nobody to hand a message to and
-    // drops it. That is deliberate: attaching earlier would let a handler run
-    // while an assistant's interactive login is blocking the receive pump, and
-    // every invoke() it made would sit there until it timed out.
     dispatcher_ = std::make_unique<Dispatcher>();
     installPlugins(*dispatcher_, plugins_, admin_, db_);
     if (!me.username.empty()) dispatcher_->setBotUsername(me.username);
@@ -171,18 +144,13 @@ bool Runtime::start() {
 
 void Runtime::stop() {
     if (stopped_.exchange(true)) return;
-    if (!started_.load()) return;   // nothing was ever wired up
+    if (!started_.load()) return;
 
     log().info("Stopping...");
     if (config_.logger_id != 0 && bot_.authorized()) {
         bot_.sendMessage(config_.logger_id, "<b>Bot Stopped</b>");
     }
 
-    // Order matters. Detach the observer so no new update is queued, drain the
-    // handler pool, close the accounts, then JOIN the receive pump — only after
-    // all of that can no handler still be running, which is what makes
-    // destroying the dispatcher (whose lambdas capture the plugins) safe.
-    // Resetting it earlier would race with an update in flight.
     bot_.setUpdateObserver(nullptr);
     if (dispatcher_) dispatcher_->stopWorkers();
     userbot_.exitAll();
@@ -204,10 +172,6 @@ std::size_t Runtime::assistantsUp() const {
 void Runtime::announceStartup() {
     if (config_.logger_id == 0) return;
 
-    // Deliberately not a locale string: the log group is the operator's, not a
-    // chat whose language the database knows, and the Python original posts a
-    // fixed English notice here too (as Userbot::announce already does).
-    // Secret-free: names and counts only, never a token, session or phone.
     const TelegramClient::Me& me = bot_.me();
     std::string card = "<b>Bot Started</b>\n\n";
     card += "<b>Bot:</b> " + me.firstName;
@@ -221,4 +185,4 @@ void Runtime::announceStartup() {
     bot_.sendMessage(config_.logger_id, card);
 }
 
-}  // namespace anonx
+}

@@ -1,22 +1,3 @@
-// AnonXMusic C++ port — Phase 5 (voice + queue)
-// ntgcalls_transport.cpp — NTgCalls-backed VoiceTransport (opt-in).
-//
-// Compiled only when the project is configured with -DANONX_WITH_NTGCALLS=ON.
-// Offline/CI builds omit this translation unit entirely and use
-// FakeVoiceTransport, so the queue/orchestration tests never need NTgCalls.
-//
-// API VERSION NOTE (please read before building for real):
-//   This binds to the NTgCalls C++ API (namespace `ntgcalls`, header
-//   <ntgcalls/ntgcalls.hpp>), targeting the ~v1.x surface. NTgCalls evolves
-//   quickly and the *media-description construction*, *exception class names*,
-//   and the *stream-end enum* are the parts most likely to differ between
-//   versions. They are deliberately isolated in the clearly-marked helpers
-//   below (buildMedia, the catch-ladder in play(), and the onStreamEnd lambda),
-//   so adapting to a specific NTgCalls release means editing only those spots.
-//   The control flow (create -> join over MTProto -> connect; pause/resume/
-//   stop; exception -> PlayResult; stream-end -> auto-advance) is stable and
-//   matches anony/core/calls.py.
-
 #include "anonx/ntgcalls_transport.hpp"
 
 #include <mutex>
@@ -24,15 +5,11 @@
 
 #if defined(ANONX_WITH_NTGCALLS)
 
-// ---------------------------------------------------------------------------
-// Real implementation (requires the NTgCalls library + its WebRTC deps).
-// ---------------------------------------------------------------------------
 #include <ntgcalls/ntgcalls.hpp>
 
 namespace anonx {
 namespace {
 
-// Map our quality presets to concrete audio parameters (Hz / bits / channels).
 void audioParamsFor(AudioQuality q, int& sampleRate, int& bits, int& channels) {
     bits     = 16;
     channels = 2;
@@ -43,7 +20,6 @@ void audioParamsFor(AudioQuality q, int& sampleRate, int& bits, int& channels) {
     }
 }
 
-// Map our video presets to width/height/fps.
 void videoParamsFor(VideoQuality q, int& w, int& h, int& fps) {
     fps = 30;
     switch (q) {
@@ -54,7 +30,6 @@ void videoParamsFor(VideoQuality q, int& w, int& h, int& fps) {
     }
 }
 
-// Wrap an argument in single quotes for /bin/sh, escaping embedded quotes.
 std::string shellEscape(const std::string& s) {
     std::string r = "'";
     for (const char c : s) {
@@ -65,12 +40,6 @@ std::string shellEscape(const std::string& s) {
     return r;
 }
 
-// Build the NTgCalls media description from our MediaSource, using ffmpeg to
-// decode the file/URL into the raw PCM/frame streams NTgCalls expects. The seek
-// offset (-ss) is placed before -i for fast seeking, matching the Python
-// `ffmpeg_parameters=f"-ss {seek_time}"` (applied only when > 1 second).
-//
-// *** Version-sensitive: field/enum names here may need tweaks per NTgCalls. ***
 ntgcalls::MediaDescription buildMedia(const MediaSource& s) {
     const std::string seek =
         s.seekSeconds > 1 ? ("-ss " + std::to_string(s.seekSeconds) + " ") : "";
@@ -106,14 +75,11 @@ ntgcalls::MediaDescription buildMedia(const MediaSource& s) {
     return desc;
 }
 
-}  // namespace
+}
 
 struct NtgCallsTransport::Impl {
     explicit Impl(Signaling sig) : signaling(std::move(sig)) {
-        // A finished stream -> auto-advance. NTgCalls reports the stream device
-        // that ended; only a finished playback (audio) should advance the queue,
-        // matching types.StreamEnded.Type.AUDIO in calls.py.
-        // *** Version-sensitive: the enum type/paths may differ. ***
+
         instance.onStreamEnd(
             [this](std::int64_t chatId, ntgcalls::StreamManager::Type type) {
                 StreamKind kind = (type == ntgcalls::StreamManager::Type::Playback)
@@ -128,7 +94,6 @@ struct NtgCallsTransport::Impl {
                     h(chatId, kind);
             });
 
-        // Connection dropped / closed remotely -> treat as a closed voice chat.
         instance.onConnectionChange(
             [this](std::int64_t chatId, ntgcalls::NetworkInfo state) {
                 if (state.state == ntgcalls::ConnectionState::Closed ||
@@ -160,25 +125,22 @@ NtgCallsTransport::~NtgCallsTransport() = default;
 PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) {
     try {
         auto media = buildMedia(src);
-        // 1) NTgCalls produces our local WebRTC params.
+
         const std::string localParams = impl_->instance.createCall(chatId, std::move(media));
-        // 2) Join the group call over MTProto (assistant account) -> remote params.
-        //    The signaling layer throws VoiceError{NoActiveGroupCall} etc.
+
         const std::string remoteParams =
             impl_->signaling.joinGroupCall
                 ? impl_->signaling.joinGroupCall(chatId, localParams)
                 : throw VoiceError(PlayResult::ServerError, "no join signaling wired");
-        // 3) Feed the remote params back to NTgCalls to finish the handshake.
+
         impl_->instance.connect(chatId, remoteParams);
         return PlayResult::Ok;
     }
-    // Our categorized failures (thrown by the signaling callback) pass through.
+
     catch (const VoiceError& e) {
         return e.category;
     }
-    // *** Version-sensitive: NTgCalls exception class names may differ. Map each
-    // to the same PlayResult branch calls.py used; the final catch is the
-    // catch-all "server error" fallback. ***
+
     catch (const ntgcalls::RTMPNeeded&)         { return PlayResult::RtmpUnsupported; }
     catch (const ntgcalls::FileError&)          { return PlayResult::FileNotFound; }
     catch (const ntgcalls::TelegramServerError&){ return PlayResult::ServerError; }
@@ -190,7 +152,7 @@ bool NtgCallsTransport::pause(std::int64_t chatId) {
     try {
         return impl_->instance.pause(chatId);
     } catch (const std::exception&) {
-        return false;  // not-in-call / connection-not-found -> caller stops
+        return false;
     }
 }
 
@@ -203,8 +165,7 @@ bool NtgCallsTransport::resume(std::int64_t chatId) {
 }
 
 void NtgCallsTransport::stop(std::int64_t chatId) {
-    // Leave over MTProto first, then tear down the local NTgCalls state. Both
-    // are best-effort (the Python stop() swallows leave_call errors).
+
     try {
         if (impl_->signaling.leaveGroupCall)
             impl_->signaling.leaveGroupCall(chatId);
@@ -217,8 +178,7 @@ void NtgCallsTransport::stop(std::int64_t chatId) {
 }
 
 double NtgCallsTransport::ping() const {
-    // NTgCalls exposes per-connection stats that vary by version; wiring a real
-    // average is left to the Phase 6 stats integration. Returns 0 when idle.
+
     return 0.0;
 }
 
@@ -232,16 +192,9 @@ void NtgCallsTransport::setCallClosedHandler(CallClosedHandler handler) {
     impl_->onCallClosed = std::move(handler);
 }
 
-}  // namespace anonx
+}
 
-#else  // !ANONX_WITH_NTGCALLS
-
-// ---------------------------------------------------------------------------
-// Stub used if this file is ever compiled without the NTgCalls dependency.
-// It keeps the symbol defined but makes any attempt to actually stream fail
-// loudly, so a misconfiguration is obvious rather than silent. (In the normal
-// build the CMake target simply omits this .cpp when the option is OFF.)
-// ---------------------------------------------------------------------------
+#else
 
 namespace anonx {
 
@@ -257,7 +210,7 @@ NtgCallsTransport::NtgCallsTransport(Signaling signaling)
 NtgCallsTransport::~NtgCallsTransport() = default;
 
 PlayResult NtgCallsTransport::play(std::int64_t, const MediaSource&) {
-    // Built without NTgCalls: report a server error rather than pretending.
+
     return PlayResult::ServerError;
 }
 bool   NtgCallsTransport::pause(std::int64_t)  { return false; }
@@ -267,6 +220,6 @@ double NtgCallsTransport::ping() const         { return 0.0; }
 void   NtgCallsTransport::setStreamEndHandler(StreamEndHandler h)  { impl_->onStreamEnd = std::move(h); }
 void   NtgCallsTransport::setCallClosedHandler(CallClosedHandler h){ impl_->onCallClosed = std::move(h); }
 
-}  // namespace anonx
+}
 
-#endif  // ANONX_WITH_NTGCALLS
+#endif

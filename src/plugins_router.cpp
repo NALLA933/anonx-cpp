@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// plugins_router.cpp — Dispatcher wiring (see plugins_router.hpp).
-
 #include "anonx/plugins_router.hpp"
 
 #include <algorithm>
@@ -37,18 +34,15 @@ ButtonEvent toButtonEvent(const CallbackContext& ctx) {
 
 void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
                     Database& db) {
-    // The engine renders its cards and notices through the plugins.
+
     plugins.attachCallbacks();
 
-    // ~app.bl_users / ~app.bl_chats: evaluated per message so a /blacklist takes
-    // effect immediately (the Python bot keeps in-memory sets refreshed on write).
     const Filter allowed =
         !filters::userWhere([&db](std::int64_t userId) {
             return userId != 0 && db.isBlacklistedUser(userId);
         }) &&
         !Filter([&db](const MessageContext& m) { return db.isBlacklistedChat(m.chatId); });
 
-    // Every playback command is group-only, matching filters.group in Python.
     const Filter inGroup = filters::groupChat() && allowed;
 
     disp.onMessage(filters::command(Plugins::playCommands()) && inGroup,
@@ -68,10 +62,6 @@ void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
     disp.onMessage(filters::command(Plugins::seekCommands()) && inGroup,
                    [&plugins](MessageContext& m) { plugins.onSeek(toCommandEvent(m)); });
 
-    // ---- Phase 6b -------------------------------------------------------
-    // The auth list and the settings card are per-group state, so those two stay
-    // group-only; everything else also answers in private (which is where the
-    // sudo commands are normally used).
     const auto adminHandler = [&admin](void (AdminPlugins::*fn)(const CommandEvent&)) {
         return [&admin, fn](MessageContext& m) { (admin.*fn)(toCommandEvent(m)); };
     };
@@ -106,19 +96,15 @@ void installPlugins(Dispatcher& disp, Plugins& plugins, AdminPlugins& admin,
     disp.onMessage(filters::command(AdminPlugins::loggerCommands()) && allowed,
                    adminHandler(&AdminPlugins::onLogger));
 
-    // The chat watcher is its own Pyrogram handler group in Python: it sees every
-    // message and never stops the command handlers from running.
     disp.onEveryMessage([&admin](MessageContext& m) { admin.onSeen(toCommandEvent(m)); });
 
-    // filters.regex("controls") — every player button carries this prefix.
     disp.onCallback(filters::callbackDataPrefix("controls"),
                     [&plugins](CallbackContext& c) { plugins.onControls(toButtonEvent(c)); });
 
-    // The menu payloads documented in buttons.hpp.
     for (const char* prefix : {"help", "lang", "settings", "start", "close"}) {
         disp.onCallback(filters::callbackDataPrefix(prefix),
                         [&admin](CallbackContext& c) { admin.onMenu(toButtonEvent(c)); });
     }
 }
 
-}  // namespace anonx
+}

@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 4
-// dispatcher.cpp — context building, filters, and routing.
-
 #include "anonx/dispatcher.hpp"
 
 #include <nlohmann/json.hpp>
@@ -20,9 +17,6 @@ std::string strField(const json& j, const char* key) {
     return std::string();
 }
 
-// Read a 64-bit integer field. With real nlohmann this preserves the full
-// 64-bit range (ids/query-ids can exceed 2^53); numbers are stored as int64,
-// not double.
 std::int64_t intField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key)) {
         const auto& val = j[key];
@@ -61,7 +55,6 @@ std::vector<std::string> tokenize(const std::string& s) {
     return out;
 }
 
-// Decode standard base64 (TDLib delivers callback payloads base64-encoded).
 std::string base64Decode(const std::string& in) {
     auto val = [](char c) -> int {
         if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -87,9 +80,7 @@ std::string base64Decode(const std::string& in) {
     return out;
 }
 
-}  // namespace
-
-// --- context helpers ---
+}
 
 std::int64_t MessageContext::reply(const std::string& html) const {
     return client ? client->sendMessage(chatId, html) : 0;
@@ -104,8 +95,6 @@ void CallbackContext::answer(const std::string& text, bool alert) const {
     req["show_alert"] = alert;
     client->raw().send(req.dump());
 }
-
-// --- filters ---
 
 namespace filters {
 
@@ -157,9 +146,7 @@ CallbackFilter callbackDataPrefix(std::string prefix) {
         [prefix](const CallbackContext& c) { return c.data.rfind(prefix, 0) == 0; });
 }
 
-}  // namespace filters
-
-// --- Dispatcher ---
+}
 
 void Dispatcher::setPrefixes(std::vector<char> prefixes) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -183,11 +170,6 @@ void Dispatcher::attach(TelegramClient& client) {
     client.setUpdateObserver([this](const std::string& u) { onUpdate(u); });
 }
 
-// --- the worker pool --------------------------------------------------------
-//
-// The pump thread only enqueues; these threads run the handlers, so a handler
-// may block on a request without stopping TDLib from delivering its response.
-
 Dispatcher::~Dispatcher() {
     stopWorkers();
 }
@@ -209,7 +191,7 @@ void Dispatcher::startWorkers() {
 
 void Dispatcher::stopWorkers() {
     if (!running_.exchange(false)) {
-        // Never started (or already stopped): still drop anything queued.
+
         std::lock_guard<std::mutex> lk(qMutex_);
         queue_.clear();
         return;
@@ -238,7 +220,6 @@ void Dispatcher::workerLoop() {
             ++busy_;
         }
 
-        // A throwing handler must not take the pool (or the process) down.
         try {
             handleUpdate(update);
         } catch (...) {
@@ -248,7 +229,7 @@ void Dispatcher::workerLoop() {
             std::lock_guard<std::mutex> lk(qMutex_);
             --busy_;
         }
-        qCv_.notify_all();   // wakes anyone waiting in idle()
+        qCv_.notify_all();
     }
 }
 
@@ -266,7 +247,7 @@ void Dispatcher::onUpdate(const std::string& updateJson) {
         qCv_.notify_one();
         return;
     }
-    // No pool (tests, or after stopWorkers()): route inline.
+
     handleUpdate(updateJson);
 }
 
@@ -298,12 +279,12 @@ std::vector<std::string> Dispatcher::parseCommand(const std::string& text) const
     std::vector<std::string> tokens = tokenize(text);
     if (tokens.empty()) return out;
 
-    std::string head = tokens[0].substr(1);   // drop the prefix character
+    std::string head = tokens[0].substr(1);
     const auto at = head.find('@');
     if (at != std::string::npos) {
         const std::string uname = head.substr(at + 1);
         head = head.substr(0, at);
-        // "/cmd@otherbot" is meant for a different bot — ignore it.
+
         if (!uname.empty() && !botUsername_.empty() && lower(uname) != botUsername_) {
             return {};
         }
@@ -323,15 +304,13 @@ bool Dispatcher::dispatchMessage(MessageContext& ctx) {
         handlers = messageHandlers_;
         watchers = watchers_;
     }
-    // Watchers run for every message and never stop propagation — Pyrogram's
-    // separate handler groups, which is how the chat watcher coexists with the
-    // command handlers in the Python bot.
+
     for (const auto& w : watchers)
         w(ctx);
     for (const auto& e : handlers) {
         if (e.filter(ctx)) {
             e.handler(ctx);
-            return true;   // first match wins (stop propagation)
+            return true;
         }
     }
     return false;
@@ -378,10 +357,7 @@ void Dispatcher::handleUpdate(const std::string& updateJson) {
                 ctx.fromUserId = intField(s, "user_id");
             }
         }
-        // Reply target. Current TDLib nests it as
-        //   "reply_to": {"@type":"messageReplyToMessage","chat_id":…,"message_id":…}
-        // while older builds exposed a flat "reply_to_message_id"; accept both,
-        // and only when the reply points into this same chat.
+
         if (m.contains("reply_to") && m["reply_to"].is_object()) {
             const json& r = m["reply_to"];
             if (strField(r, "@type") == "messageReplyToMessage") {
@@ -419,4 +395,4 @@ void Dispatcher::handleUpdate(const std::string& updateJson) {
     }
 }
 
-}  // namespace anonx
+}

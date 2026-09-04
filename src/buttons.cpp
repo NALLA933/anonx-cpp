@@ -1,15 +1,3 @@
-// AnonXMusic C++ port — Phase 6a (command plugins)
-// buttons.cpp — inline-keyboard builders (see buttons.hpp).
-//
-// Layouts and callback_data strings mirror anony/helpers/_inline.py exactly.
-// The transport glyphs are written as explicit UTF-8 byte escapes so the exact
-// bytes are guaranteed regardless of source-file encoding:
-//   resume "\xE2\x96\xB7" = U+25B7  ▷
-//   pause  "II"           = ASCII
-//   replay "\xE2\xA5\x81" = U+2941  ⥁
-//   skip   "\xE2\x80\xA3\xE2\x80\xA3I" = U+2023 U+2023 'I'  ‣‣I
-//   stop   "\xE2\x96\xA2" = U+25A2  ▢
-
 #include "anonx/buttons.hpp"
 
 namespace anonx {
@@ -58,19 +46,13 @@ InlineKeyboard pingMarkup(const std::string& text, const std::string& url) {
     return { { InlineButton::link(text, url) } };
 }
 
-// ---------------------------------------------------------------------
-// Phase 6b — menus
-// ---------------------------------------------------------------------
-
 const char* toggleMark(bool enabled) {
-    // U+2705 white heavy check mark / U+274C cross mark, as explicit UTF-8.
+
     return enabled ? "\xE2\x9C\x85" : "\xE2\x9D\x8C";
 }
 
 namespace {
 
-// The row of external links every start card carries. Buttons whose target is
-// empty are skipped, so a partly configured bot still renders a valid keyboard.
 std::vector<InlineButton> linkRow(const MenuText& t, const std::string& supportChat,
                                   const std::string& supportChannel) {
     std::vector<InlineButton> row;
@@ -86,7 +68,7 @@ void pushIfAny(InlineKeyboard& kb, std::vector<InlineButton> row) {
         kb.push_back(std::move(row));
 }
 
-}  // namespace
+}
 
 InlineKeyboard startPrivate(const MenuText& t, const std::string& addMeUrl,
                             const std::string& supportChat,
@@ -165,5 +147,5 @@ InlineKeyboard settingsMenu(const MenuText& t, bool cmdDelete, bool playMode) {
     };
 }
 
-}  // namespace buttons
-}  // namespace anonx
+}
+}

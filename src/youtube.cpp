@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 3
-// youtube.cpp — implementation of the YouTube service (yt-dlp subprocess).
-
 #include "anonx/youtube.hpp"
 
 #include "anonx/logger.hpp"
@@ -13,16 +10,15 @@
 #include <string>
 #include <vector>
 
-#include <dirent.h>     // opendir / readdir
-#include <sys/wait.h>   // WIFEXITED / WEXITSTATUS
-#include <unistd.h>     // access
+#include <dirent.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace anonx {
 namespace {
 
 using nlohmann::json;
 
-// ---- small JSON accessors (guarded, never throw) ----
 std::string jstr(const json& j, const char* key) {
     if (j.contains(key)) {
         const json& v = j[key];
@@ -39,7 +35,6 @@ double jnum(const json& j, const char* key) {
     return 0.0;
 }
 
-// ---- string / time helpers ----
 std::string formatSeconds(int s) {
     if (s < 0) s = 0;
     const int h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
@@ -49,7 +44,6 @@ std::string formatSeconds(int s) {
     return std::string(buf);
 }
 
-// Parse "H:M:S" / "M:S" / "S" -> seconds (mirrors utils.to_seconds).
 int toSeconds(const std::string& t) {
     std::vector<int> parts;
     std::stringstream ss(t);
@@ -69,7 +63,6 @@ int toSeconds(const std::string& t) {
     return total;
 }
 
-// Truncate to at most `maxCp` UTF-8 code points without splitting a character.
 std::string utf8Truncate(const std::string& s, std::size_t maxCp) {
     std::size_t cp = 0, i = 0;
     while (i < s.size() && cp < maxCp) {
@@ -91,7 +84,6 @@ std::string stripQuery(std::string u) {
     return u;
 }
 
-// Wrap an argument in single quotes for /bin/sh, escaping embedded quotes.
 std::string shellQuote(const std::string& s) {
     std::string r = "'";
     for (const char c : s) {
@@ -106,7 +98,6 @@ bool fileExists(const std::string& path) {
     return ::access(path.c_str(), F_OK) == 0;
 }
 
-// Run `cmd`, capture stdout, and (optionally) report the process exit code.
 std::string runCapture(const std::string& cmd, int* exitCode) {
     std::string out;
     std::FILE* pipe = ::popen(cmd.c_str(), "r");
@@ -128,11 +119,10 @@ std::string runCapture(const std::string& cmd, int* exitCode) {
     return out;
 }
 
-}  // namespace
+}
 
 YouTube::YouTube() : rng_(std::random_device{}()) {
-    // Ported from the Python regexes. Compilation is guarded so a bad build of
-    // std::regex can never crash the process — valid()/invalid() just degrade.
+
     try {
         regex_ = std::regex(
             R"((https?://)?(www\.|m\.|music\.)?(youtube\.com/(watch\?v=|shorts/|playlist\?list=)|youtu\.be/)([A-Za-z0-9_-]{11}|PL[A-Za-z0-9_-]+)([&?][^\s]*)?)");
@@ -149,7 +139,7 @@ std::string YouTube::runCommand(const std::string& cmd) {
 }
 
 std::optional<Track> YouTube::parseTrackJson(const std::string& jsonText, bool video) {
-    json j = json::parse(jsonText, nullptr, /*allow_exceptions=*/false);
+    json j = json::parse(jsonText, nullptr, false);
     if (j.is_discarded() || !j.is_object()) return std::nullopt;
 
     const std::string id = jstr(j, "id");
@@ -159,11 +149,9 @@ std::optional<Track> YouTube::parseTrackJson(const std::string& jsonText, bool v
     t.id = id;
     t.video = video;
 
-    // channel name: prefer "channel", fall back to "uploader"
     t.channel_name = jstr(j, "channel");
     if (t.channel_name.empty()) t.channel_name = jstr(j, "uploader");
 
-    // duration: yt-dlp emits seconds as a number; "duration_string" is "M:SS"
     int secs = 0;
     if (j.contains("duration") && j["duration"].is_number()) {
         secs = static_cast<int>(jnum(j, "duration"));
@@ -173,19 +161,15 @@ std::optional<Track> YouTube::parseTrackJson(const std::string& jsonText, bool v
     t.duration_sec = secs;
     t.duration = !durStr.empty() ? durStr : formatSeconds(secs);
 
-    // title — faithfully truncated to 25 code points, as in the original
     t.title = utf8Truncate(jstr(j, "title"), 25);
 
-    // canonical single-video URL
     t.url = "https://www.youtube.com/watch?v=" + id;
 
-    // thumbnail: scalar "thumbnail" (query stripped) if present, else derived
     const std::string thumb = jstr(j, "thumbnail");
     t.thumbnail = !thumb.empty()
                       ? stripQuery(thumb)
                       : ("https://i.ytimg.com/vi/" + id + "/hqdefault.jpg");
 
-    // view_count: yt-dlp gives a raw number; store it as a string ("" if absent)
     if (j.contains("view_count") && j["view_count"].is_number()) {
         t.view_count = std::to_string(static_cast<long long>(jnum(j, "view_count")));
     }
@@ -208,7 +192,7 @@ std::optional<Track> YouTube::search(const std::string& query,
             t->message_id = messageId;
             return t;
         }
-        break;  // first non-empty line was not usable
+        break;
     }
     return std::nullopt;
 }
@@ -239,7 +223,6 @@ std::optional<std::string> YouTube::download(const std::string& videoId, bool vi
     const std::string ext = video ? "mp4" : "webm";
     const std::string filename = std::string(kDownloadsDir) + "/" + videoId + "." + ext;
 
-    // CRITICAL: never re-download something we already have.
     if (fileExists(filename)) return filename;
 
     const std::string url = base_ + videoId;
@@ -303,4 +286,4 @@ bool YouTube::invalid(const std::string& url) const {
     return std::regex_search(url, iregex_, std::regex_constants::match_continuous);
 }
 
-}  // namespace anonx
+}

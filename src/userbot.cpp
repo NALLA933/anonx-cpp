@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 4
-// userbot.cpp — assistant account manager.
-
 #include "anonx/userbot.hpp"
 
 #include <nlohmann/json.hpp>
@@ -16,7 +13,6 @@ using nlohmann::json;
 
 Logger log() { return Logger("anonx.userbot"); }
 
-// Prompt on stderr and read one line from stdin (used for first-run login).
 std::function<std::string()> stdinPrompt(const std::string& prompt) {
     return [prompt]() -> std::string {
         std::fprintf(stderr, "%s", prompt.c_str());
@@ -54,7 +50,7 @@ std::int64_t intField(const json& j, const char* key) {
     return 0;
 }
 
-}  // namespace
+}
 
 Userbot::Userbot(int apiId, std::string apiHash)
     : apiId_(apiId), apiHash_(std::move(apiHash)) {}
@@ -138,7 +134,7 @@ void Userbot::announce(TelegramClient& client) {
 }
 
 void Userbot::joinSupport(TelegramClient& client) {
-    // Resolve the public username to a chat, then join it.
+
     json search;
     search["@type"] = "searchPublicChat";
     search["username"] = supportChat_;
@@ -158,4 +154,4 @@ void Userbot::joinSupport(TelegramClient& client) {
     client.raw().invoke(join.dump());
 }
 
-}  // namespace anonx
+}

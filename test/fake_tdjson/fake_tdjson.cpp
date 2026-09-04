@@ -1,38 +1,3 @@
-// AnonXMusic C++ port — Phase 4 TEST SCAFFOLDING (not for production)
-//
-// A scripted, in-memory fake of the TDLib JSON interface. It implements just
-// enough of the authorization state machine and request/response behaviour to
-// exercise TdClient, TelegramClient, Dispatcher and Userbot offline and
-// deterministically. It does NOT talk to Telegram.
-//
-// Scripted behaviour:
-//   * On the FIRST request a client sends (TDLib creates the instance lazily):
-//     emit updateAuthorizationState(WaitTdlibParameters).
-//   * setTdlibParameters            -> WaitPhoneNumber
-//   * checkAuthenticationBotToken   -> Ready                    (bot login)
-//   * setAuthenticationPhoneNumber  -> WaitCode                 (user login)
-//   * checkAuthenticationCode       -> code "2fa" => WaitPassword, else Ready
-//   * checkAuthenticationPassword   -> Ready
-//   * getMe / getUser               -> user{ id, first_name, usernames }
-//   * getChat / searchPublicChat    -> chat{ id, title }
-//   * getChatMember                 -> chatMember{ status: Administrator }
-//   * sendMessage                   -> message{ id }, and the message is STORED
-//   * editMessageText               -> message{ id }, updating the stored text
-//   * editMessageReplyMarkup        -> message{ id }
-//   * deleteMessages / leaveChat    -> ok
-//   * forwardMessages               -> messages{ total_count, messages }
-//   * getMessage                    -> the stored message, else error 404
-//   * getMessageLink                -> messageLink{ link }
-//   * joinChat / answerCallbackQuery-> ok
-//   * close                         -> Closed
-//   * td_execute(parseTextEntities) -> formattedText{ text }   (NO html parsing:
-//     the text is returned verbatim with no entities, so a card read back with
-//     getMessage comes out HTML-escaped. Tests therefore assert on the OUTGOING
-//     request rather than on a round-tripped body.)
-//
-// Every request is also recorded (see fake_tdjson_hook.h), which is how the
-// integration test checks what the bot actually sent to Telegram.
-
 #include <td/telegram/td_json_client.h>
 
 #include "fake_tdjson_hook.h"
@@ -75,14 +40,6 @@ public:
         return f;
     }
 
-    // Real TDLib creates the instance lazily: td_create_client_id() only hands
-    // out an identifier, and "the TDLib instance will not send updates until the
-    // first request is sent to it". Modelling that is not pedantry — it is what
-    // keeps the fake honest about two things. A client that never sends a first
-    // request never authorizes here either (as it would not against the real
-    // library), and no object can be handed to the shared receive pump for a
-    // client id the pump has not been told about yet, which is otherwise a race
-    // that silently drops the very first authorization update.
     int createClientId() { return nextId_.fetch_add(1); }
 
     void send(int clientId, const std::string& request) {
@@ -136,7 +93,7 @@ public:
         } else if (type == "getChat" || type == "searchPublicChat") {
             json chat;
             chat["@type"] = "chat";
-            // For searchPublicChat give a stable id; for getChat echo it back.
+
             chat["id"] = (type == "getChat") ? intField(req, "chat_id") : -1001122334455LL;
             chat["title"] = "Fake Chat";
             respond(clientId, extra, chat);
@@ -161,7 +118,7 @@ public:
             const std::int64_t chatId = intField(req, "chat_id");
             const std::int64_t msgId = intField(req, "message_id");
             json msg = makeMessage(chatId, msgId, 100000 + clientId, contentOf(req));
-            store(msg);   // the edit replaces the stored body
+            store(msg);
             respond(clientId, extra, msg);
 
         } else if (type == "editMessageReplyMarkup") {
@@ -222,7 +179,7 @@ public:
             pushAuth(clientId, "authorizationStateClosed");
 
         } else {
-            // Unknown request: acknowledge so invoke() doesn't time out.
+
             if (!extra.empty()) {
                 json ok;
                 ok["@type"] = "ok";
@@ -266,8 +223,6 @@ public:
         enqueue(j.dump());
     }
 
-    // --- test hooks: recorded requests ---
-
     void clearRequests() {
         std::lock_guard<std::mutex> lk(reqMutex_);
         requests_.clear();
@@ -287,7 +242,6 @@ public:
         return n;
     }
 
-    // nth == npos means "the last one".
     std::string requestOfType(const std::string& type, std::size_t nth) {
         std::lock_guard<std::mutex> lk(reqMutex_);
         std::string last;
@@ -301,8 +255,6 @@ public:
         return (nth == std::string::npos) ? last : std::string();
     }
 
-    // --- test hooks: message store ---
-
     void putMessage(std::int64_t chatId, std::int64_t messageId,
                     std::int64_t senderUserId, const std::string& text) {
         store(makeMessage(chatId, messageId, senderUserId, textContent(text)));
@@ -314,10 +266,7 @@ public:
             q_.clear();
         }
         clearRequests();
-        // started_ is deliberately NOT cleared: client ids are never reused
-        // (nextId_ only ever grows), and forgetting that a live client has
-        // already started would re-run its authorization from the first request
-        // it made after the reset.
+
         std::lock_guard<std::mutex> lk(msgMutex_);
         messages_.clear();
     }
@@ -325,8 +274,6 @@ public:
 private:
     FakeTd() = default;
 
-    // True for the request that brings a client instance to life, false ever
-    // after — the hook the lazy-creation rule above hangs on.
     bool firstRequestOf(int clientId) {
         std::lock_guard<std::mutex> lk(startedMutex_);
         return started_.insert(clientId).second;
@@ -354,8 +301,6 @@ private:
         return content;
     }
 
-    // The formattedText an inputMessageText carries, re-tagged as the messageText
-    // a real TDLib would hand back for the sent message.
     static json contentOf(const json& req) {
         if (req.contains("input_message_content") &&
             req["input_message_content"].is_object() &&
@@ -436,15 +381,13 @@ private:
     std::map<std::pair<std::int64_t, std::int64_t>, json> messages_;
 
     std::mutex startedMutex_;
-    std::set<int> started_;      // client ids whose instance has come to life
+    std::set<int> started_;
 };
 
-// Thread-local storage backing the const char* returned by td_receive/td_execute
-// (valid until the next call on the same thread — matching TDLib's contract).
 thread_local std::string g_receiveBuf;
 thread_local std::string g_executeBuf;
 
-}  // namespace
+}
 
 extern "C" {
 
@@ -466,7 +409,7 @@ const char* td_execute(const char* request) {
     return g_executeBuf.c_str();
 }
 
-}  // extern "C"
+}
 
 void fake_td_inject(int clientId, const char* updateJson) {
     if (updateJson) FakeTd::instance().inject(clientId, updateJson);

@@ -1,6 +1,3 @@
-// AnonXMusic C++ port — Phase 2
-// logger.cpp — implementation of LogSink (rotation + formatting + dual sink).
-
 #include "anonx/logger.hpp"
 
 #include <cstdio>
@@ -21,7 +18,6 @@ const char* levelName(LogLevel lvl) {
     return "INFO";
 }
 
-// "%d-%b-%y %H:%M:%S" in local time, e.g. "26-Aug-26 11:33:00".
 std::string timestamp() {
     std::time_t now = std::time(nullptr);
     std::tm tmv{};
@@ -41,10 +37,10 @@ std::string backupName(const std::string& base, int i) {
     return base + "." + std::to_string(i);
 }
 
-}  // namespace
+}
 
 LogSink& LogSink::instance() {
-    static LogSink sink;   // Meyers singleton: thread-safe init since C++11
+    static LogSink sink;
     return sink;
 }
 
@@ -53,7 +49,7 @@ LogSink::~LogSink() { close(); }
 void LogSink::init(const std::string& filePath, std::size_t maxBytes,
                    int backupCount, LogLevel minLevel) {
     std::lock_guard<std::mutex> lk(mtx_);
-    // Re-configuring: drop any open handle so the new path takes effect.
+
     if (file_) {
         std::fclose(file_);
         file_ = nullptr;
@@ -83,11 +79,9 @@ void LogSink::ensureOpenLocked() {
         long pos = std::ftell(file_);
         curSize_ = (pos > 0) ? static_cast<std::size_t>(pos) : 0;
     }
-    // If the file can't be opened we simply skip file output; stderr still works.
+
 }
 
-// Mirrors RotatingFileHandler.doRollover: shift log.txt.(i) -> log.txt.(i+1),
-// discard the oldest, then start a fresh log.txt.
 void LogSink::rotateLocked() {
     if (file_) {
         std::fclose(file_);
@@ -97,14 +91,14 @@ void LogSink::rotateLocked() {
         for (int i = backupCount_ - 1; i >= 1; --i) {
             std::string sfn = backupName(filePath_, i);
             std::string dfn = backupName(filePath_, i + 1);
-            std::remove(dfn.c_str());            // no-op if absent
-            std::rename(sfn.c_str(), dfn.c_str());  // no-op if src absent
+            std::remove(dfn.c_str());
+            std::rename(sfn.c_str(), dfn.c_str());
         }
         std::string first = backupName(filePath_, 1);
         std::remove(first.c_str());
         std::rename(filePath_.c_str(), first.c_str());
     }
-    file_ = std::fopen(filePath_.c_str(), "w");  // fresh, truncated
+    file_ = std::fopen(filePath_.c_str(), "w");
     curSize_ = 0;
 }
 
@@ -115,11 +109,9 @@ void LogSink::write(LogLevel lvl, const std::string& name, const std::string& me
     std::string line = "[" + timestamp() + " - " + levelName(lvl) + "] - " +
                        name + ": " + message + "\n";
 
-    // ---- console (stderr, like Python's default StreamHandler) ----
     std::fputs(line.c_str(), stderr);
     std::fflush(stderr);
 
-    // ---- rotating file ----
     ensureOpenLocked();
     if (file_) {
         if (maxBytes_ > 0 && curSize_ > 0 && curSize_ + line.size() > maxBytes_) {
@@ -142,4 +134,4 @@ void LogSink::close() {
     }
 }
 
-}  // namespace anonx
+}

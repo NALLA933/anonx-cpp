@@ -1,4 +1,3 @@
-// TDLib official C JSON client interface header
 #ifndef TD_TELEGRAM_TD_JSON_CLIENT_H
 #define TD_TELEGRAM_TD_JSON_CLIENT_H
 
@@ -15,4 +14,4 @@ const char *td_execute(const char *request);
 }
 #endif
 
-#endif  // TD_TELEGRAM_TD_JSON_CLIENT_H
+#endif
