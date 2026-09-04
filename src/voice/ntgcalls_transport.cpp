@@ -94,6 +94,23 @@ private:
         ntg_on_stream_end = (fn_ntg_on_stream_end)dlsym(handle, "ntg_on_stream_end");
         ntg_on_connection_change = (fn_ntg_on_connection_change)dlsym(handle, "ntg_on_connection_change");
 
+        typedef void (*fn_ntg_register_logger)(ntg_log_message_callback);
+        fn_ntg_register_logger ntg_register_logger =
+            (fn_ntg_register_logger)dlsym(handle, "ntg_register_logger");
+        if (ntg_register_logger) {
+            ntg_register_logger([](ntg_log_message_struct msg) {
+                if (msg.message) {
+                    if (msg.level == NTG_LOG_ERROR) {
+                        log().error(std::string("[NTgCalls] ") + msg.message);
+                    } else if (msg.level == NTG_LOG_WARNING) {
+                        log().warning(std::string("[NTgCalls] ") + msg.message);
+                    } else {
+                        log().info(std::string("[NTgCalls] ") + msg.message);
+                    }
+                }
+            });
+        }
+
         if (!ntg_init || !ntg_create || !ntg_connect || !ntg_set_stream_sources) {
             log().error("libntgcalls.so missing required symbol exports");
             dlclose(handle);
@@ -103,21 +120,31 @@ private:
     }
 };
 
-struct AsyncWait {
+struct AsyncWait : std::enable_shared_from_this<AsyncWait> {
     std::promise<void> prom;
     int errCode = 0;
     char* errMsg = nullptr;
+    std::atomic<bool> resolved{false};
 
     static void callback(void* user) {
-        auto* self = static_cast<AsyncWait*>(user);
-        self->prom.set_value();
+        auto* holder = static_cast<std::shared_ptr<AsyncWait>*>(user);
+        if (holder) {
+            auto self = *holder;
+            delete holder;
+            if (self && !self->resolved.exchange(true)) {
+                try {
+                    self->prom.set_value();
+                } catch (...) {}
+            }
+        }
     }
 
-    ntg_async_struct makeFuture() {
-        ntg_async_struct s;
-        s.userData = this;
-        s.errorCode = &errCode;
-        s.errorMessage = &errMsg;
+    ntg_async_struct makeFuture(std::shared_ptr<AsyncWait> self) {
+        ntg_async_struct s = {};
+        auto* holder = new std::shared_ptr<AsyncWait>(self);
+        s.userData = holder;
+        s.errorCode = &self->errCode;
+        s.errorMessage = &self->errMsg;
         s.promise = &callback;
         return s;
     }
@@ -133,6 +160,14 @@ struct AsyncWait {
         }
         return true;
     }
+};
+
+struct StreamContext {
+    std::string audioCmd;
+    std::string videoCmd;
+    ntg_audio_description_struct audioDesc{};
+    ntg_video_description_struct videoDesc{};
+    ntg_media_description_struct mediaDesc{};
 };
 
 } // namespace
@@ -153,6 +188,10 @@ struct NtgCallsTransport::Impl {
 
     ~Impl() {
         auto& lib = NtgLibrary::instance();
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            activeStreams.clear();
+        }
         if (lib.loaded() && client != 0 && lib.ntg_destroy) {
             lib.ntg_destroy(client);
             client = 0;
@@ -181,6 +220,7 @@ struct NtgCallsTransport::Impl {
     uintptr_t client = 0;
     Signaling signaling;
     mutable std::mutex mtx;
+    std::unordered_map<int64_t, std::shared_ptr<StreamContext>> activeStreams;
     StreamEndHandler onStreamEnd;
     CallClosedHandler onCallClosed;
 };
@@ -198,9 +238,10 @@ PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) 
 
         if (lib.loaded() && impl_->client != 0) {
             char* buffer = nullptr;
-            AsyncWait createWait;
-            int rc = lib.ntg_create(impl_->client, chatId, &buffer, createWait.makeFuture());
-            if (rc != 0 || !createWait.wait(15) || !buffer) {
+            auto createWait = std::make_shared<AsyncWait>();
+            int rc = lib.ntg_create(impl_->client, chatId, &buffer,
+                                    createWait->makeFuture(createWait));
+            if (rc != 0 || !createWait->wait(15) || !buffer) {
                 log().warning("ntg_create failed for chat " + std::to_string(chatId));
                 return PlayResult::ServerError;
             }
@@ -223,50 +264,53 @@ PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) 
         }
 
         if (lib.loaded() && impl_->client != 0) {
-            AsyncWait connectWait;
+            auto connectWait = std::make_shared<AsyncWait>();
             log().info("connecting NTgCalls WebRTC engine to Telegram server for chat " +
                        std::to_string(chatId));
             int rc = lib.ntg_connect(impl_->client, chatId,
                                      const_cast<char*>(remoteParams.c_str()), false,
-                                     connectWait.makeFuture());
-            if (rc != 0 || !connectWait.wait(15)) {
+                                     connectWait->makeFuture(connectWait));
+            if (rc != 0 || !connectWait->wait(15)) {
                 log().warning("ntg_connect failed for chat " + std::to_string(chatId));
                 return PlayResult::ServerError;
             }
 
+            auto ctx = std::make_shared<StreamContext>();
             const std::string seek =
                 src.seekSeconds > 1 ? ("-ss " + std::to_string(src.seekSeconds) + " ") : "";
-            std::string ffmpegCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
-                                    " -f s16le -ac 2 -ar 48000 -loglevel quiet pipe:1";
+            ctx->audioCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
+                            " -f s16le -ac 2 -ar 48000 -loglevel quiet pipe:1";
 
-            ntg_audio_description_struct audioDesc = {};
-            audioDesc.mediaSource = NTG_SHELL;
-            audioDesc.input = const_cast<char*>(ffmpegCmd.c_str());
-            audioDesc.sampleRate = 48000;
-            audioDesc.channelCount = 2;
-            audioDesc.keepOpen = false;
+            ctx->audioDesc.mediaSource = NTG_SHELL;
+            ctx->audioDesc.input = const_cast<char*>(ctx->audioCmd.c_str());
+            ctx->audioDesc.sampleRate = 48000;
+            ctx->audioDesc.channelCount = 2;
+            ctx->audioDesc.keepOpen = false;
 
-            ntg_media_description_struct mediaDesc = {};
-            mediaDesc.microphone = &audioDesc;
+            ctx->mediaDesc.microphone = &ctx->audioDesc;
 
-            ntg_video_description_struct videoDesc = {};
-            std::string videoCmd;
             if (src.video) {
-                videoCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
-                           " -f rawvideo -pix_fmt yuv420p -vf scale=1280:720 -r 30 -loglevel quiet pipe:1";
-                videoDesc.mediaSource = NTG_SHELL;
-                videoDesc.input = const_cast<char*>(videoCmd.c_str());
-                videoDesc.width = 1280;
-                videoDesc.height = 720;
-                videoDesc.fps = 30;
-                videoDesc.keepOpen = false;
-                mediaDesc.camera = &videoDesc;
+                ctx->videoCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
+                               " -f rawvideo -pix_fmt yuv420p -vf scale=1280:720 -r 30 -loglevel quiet pipe:1";
+                ctx->videoDesc.mediaSource = NTG_SHELL;
+                ctx->videoDesc.input = const_cast<char*>(ctx->videoCmd.c_str());
+                ctx->videoDesc.width = 1280;
+                ctx->videoDesc.height = 720;
+                ctx->videoDesc.fps = 30;
+                ctx->videoDesc.keepOpen = false;
+                ctx->mediaDesc.camera = &ctx->videoDesc;
             }
 
-            AsyncWait streamWait;
-            rc = lib.ntg_set_stream_sources(impl_->client, chatId, NTG_STREAM_PLAYBACK,
-                                            mediaDesc, streamWait.makeFuture());
-            if (rc != 0 || !streamWait.wait(15)) {
+            {
+                std::lock_guard<std::mutex> lk(impl_->mtx);
+                impl_->activeStreams[chatId] = ctx;
+            }
+
+            auto streamWait = std::make_shared<AsyncWait>();
+            rc = lib.ntg_set_stream_sources(impl_->client, chatId, NTG_STREAM_CAPTURE,
+                                            ctx->mediaDesc,
+                                            streamWait->makeFuture(streamWait));
+            if (rc != 0 || !streamWait->wait(15)) {
                 log().warning("ntg_set_stream_sources failed for chat " + std::to_string(chatId));
                 return PlayResult::ServerError;
             }
@@ -286,9 +330,9 @@ bool NtgCallsTransport::pause(std::int64_t chatId) {
     auto& lib = NtgLibrary::instance();
     if (lib.loaded() && impl_->client != 0 && lib.ntg_pause) {
         try {
-            AsyncWait wait;
-            lib.ntg_pause(impl_->client, chatId, wait.makeFuture());
-            return wait.wait(5);
+            auto wait = std::make_shared<AsyncWait>();
+            lib.ntg_pause(impl_->client, chatId, wait->makeFuture(wait));
+            return wait->wait(5);
         } catch (...) {
             return false;
         }
@@ -300,9 +344,9 @@ bool NtgCallsTransport::resume(std::int64_t chatId) {
     auto& lib = NtgLibrary::instance();
     if (lib.loaded() && impl_->client != 0 && lib.ntg_resume) {
         try {
-            AsyncWait wait;
-            lib.ntg_resume(impl_->client, chatId, wait.makeFuture());
-            return wait.wait(5);
+            auto wait = std::make_shared<AsyncWait>();
+            lib.ntg_resume(impl_->client, chatId, wait->makeFuture(wait));
+            return wait->wait(5);
         } catch (...) {
             return false;
         }
@@ -314,10 +358,14 @@ void NtgCallsTransport::stop(std::int64_t chatId) {
     auto& lib = NtgLibrary::instance();
     if (lib.loaded() && impl_->client != 0 && lib.ntg_stop) {
         try {
-            AsyncWait wait;
-            lib.ntg_stop(impl_->client, chatId, wait.makeFuture());
-            wait.wait(5);
+            auto wait = std::make_shared<AsyncWait>();
+            lib.ntg_stop(impl_->client, chatId, wait->makeFuture(wait));
+            wait->wait(5);
         } catch (...) {}
+    }
+    {
+        std::lock_guard<std::mutex> lk(impl_->mtx);
+        impl_->activeStreams.erase(chatId);
     }
     try {
         if (impl_->signaling.leaveGroupCall)

@@ -32,6 +32,20 @@ volatile std::sig_atomic_t g_stop = 0;
 
 extern "C" void onSignal(int) { g_stop = 1; }
 
+#if !defined(_WIN32)
+extern "C" void onCrashSignal(int sig) {
+    const char* name = "UNKNOWN";
+    if (sig == SIGSEGV) name = "SIGSEGV (Segmentation Fault)";
+    else if (sig == SIGABRT) name = "SIGABRT (Aborted)";
+    else if (sig == SIGBUS) name = "SIGBUS (Bus Error)";
+    else if (sig == SIGFPE) name = "SIGFPE (Floating Point Exception)";
+    else if (sig == SIGILL) name = "SIGILL (Illegal Instruction)";
+    std::fprintf(stderr, "\n[FATAL CRASH] Process received fatal signal %d: %s\n", sig, name);
+    std::fflush(stderr);
+    _Exit(128 + sig);
+}
+#endif
+
 bool makeDir(const char* path) {
     return ::mkdir(path, 0755) == 0 || errno == EEXIST;
 }
@@ -74,6 +88,18 @@ int runBot(const std::string& envFile) {
         log.critical("startup failed — see the messages above");
         return 1;
     }
+
+#if !defined(_WIN32)
+    // Ignore SIGPIPE so broken ffmpeg/network pipes don't terminate the bot process
+    ::signal(SIGPIPE, SIG_IGN);
+
+    // Register fatal signal diagnostics
+    ::signal(SIGSEGV, onCrashSignal);
+    ::signal(SIGABRT, onCrashSignal);
+    ::signal(SIGBUS, onCrashSignal);
+    ::signal(SIGFPE, onCrashSignal);
+    ::signal(SIGILL, onCrashSignal);
+#endif
 
     struct sigaction sa;
     std::memset(&sa, 0, sizeof(sa));

@@ -287,4 +287,12 @@ echo ""
 
 export LD_LIBRARY_PATH="/usr/local/lib:$PWD/lib:${LD_LIBRARY_PATH:-}"
 ln -sf senpai ./build/anonx 2>/dev/null || true
-exec ./build/senpai "$ENV_FILE"
+
+./build/senpai "$ENV_FILE"
+BOT_EXIT_CODE=$?
+
+if [ $BOT_EXIT_CODE -ne 0 ]; then
+    echo ""
+    log_error "SenpaiMusic bot stopped with exit code $BOT_EXIT_CODE."
+fi
+
