@@ -99,13 +99,16 @@ private:
             (fn_ntg_register_logger)dlsym(handle, "ntg_register_logger");
         if (ntg_register_logger) {
             ntg_register_logger([](ntg_log_message_struct msg) {
-                if (msg.message) {
+                if (msg.message && (msg.level == NTG_LOG_ERROR || msg.level == NTG_LOG_WARNING)) {
+                    // Ignore benign WebRTC local audio recording initialization warning on headless servers
+                    std::string text = msg.message;
+                    if (text.find("Failed to initialize recording") != std::string::npos) {
+                        return;
+                    }
                     if (msg.level == NTG_LOG_ERROR) {
-                        log().error(std::string("[NTgCalls] ") + msg.message);
-                    } else if (msg.level == NTG_LOG_WARNING) {
-                        log().warning(std::string("[NTgCalls] ") + msg.message);
+                        log().error(std::string("[NTgCalls] ") + text);
                     } else {
-                        log().info(std::string("[NTgCalls] ") + msg.message);
+                        log().warning(std::string("[NTgCalls] ") + text);
                     }
                 }
             });
