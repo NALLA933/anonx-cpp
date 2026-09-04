@@ -34,7 +34,8 @@ void testStringUtils() {
     assert(senpai::utils::parseI64("1234567890", val) && val == 1234567890LL);
     assert(senpai::utils::parseI64("-9876543210", val) && val == -9876543210LL);
     assert(!senpai::utils::parseI64("not_a_number", val));
-    assert(!senpai::utils::parseI64("99999999999999999999999", val)); // overflow check
+    assert(!senpai::utils::parseI64("99999999999999999999999", val));
+    (void)val;
 
     assert(senpai::utils::htmlEscape("<b>Tom & Jerry</b>") == "&lt;b&gt;Tom &amp; Jerry&lt;/b&gt;");
 
@@ -61,10 +62,12 @@ void testQueue() {
     assert(pos0 == 0);
     assert(!q.empty(chat));
     assert(q.size(chat) == 1);
+    (void)pos0;
 
     int pos1 = q.add(chat, track2);
     assert(pos1 == 1);
     assert(q.size(chat) == 2);
+    (void)pos1;
 
     auto cur = q.getCurrent(chat);
     assert(cur.has_value() && cur->id == "vid1");
@@ -108,7 +111,7 @@ void testCacheManager() {
 void testLanguage() {
     std::cout << "[RUN] testLanguage..." << std::endl;
     senpai::Language lang;
-    std::size_t count = lang.loadFromDir("locales");
+    int count = lang.loadDir("locales");
     std::cout << "Loaded " << count << " languages from locales/" << std::endl;
     assert(count > 0);
 

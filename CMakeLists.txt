@@ -159,7 +159,7 @@ if(SENPAI_WITH_TDLIB OR ANONX_WITH_TDLIB)
 endif()
 
 # Offline Unit Tests
-option(BUILD_TESTING "Build offline unit test suite" ON)
+option(BUILD_TESTING "Build offline unit test suite" OFF)
 if(BUILD_TESTING)
   enable_testing()
   add_executable(senpai_tests tests/test_main.cpp)

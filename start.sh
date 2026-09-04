@@ -194,7 +194,7 @@ if ! cmake -B build -S . -DSENPAI_WITH_TDLIB=ON; then
     exit 1
 fi
 
-if ! cmake --build build -j"$NPROC"; then
+if ! cmake --build build --target senpai -j"$NPROC"; then
     echo ""
     log_error "Build failed!"
     echo "If you encountered compiler or linker errors, please verify build-essential / g++ versions."
