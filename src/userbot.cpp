@@ -38,8 +38,18 @@ std::string strField(const json& j, const char* key) {
 }
 
 std::int64_t intField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key) && j[key].is_number()) {
-        return j[key].get<std::int64_t>();
+    if (j.is_object() && j.contains(key)) {
+        const auto& val = j[key];
+        if (val.is_number()) {
+            return val.get<std::int64_t>();
+        }
+        if (val.is_string()) {
+            try {
+                return std::stoll(val.get<std::string>());
+            } catch (...) {
+                return 0;
+            }
+        }
     }
     return 0;
 }

@@ -30,8 +30,18 @@ std::string strField(const json& j, const char* key) {
 // Safe int64 read from a numeric field. With real nlohmann this keeps the full
 // 64-bit range (ids can exceed 2^53), as numbers are stored as int64 not double.
 std::int64_t intField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key) && j[key].is_number()) {
-        return j[key].get<std::int64_t>();
+    if (j.is_object() && j.contains(key)) {
+        const auto& val = j[key];
+        if (val.is_number()) {
+            return val.get<std::int64_t>();
+        }
+        if (val.is_string()) {
+            try {
+                return std::stoll(val.get<std::string>());
+            } catch (...) {
+                return 0;
+            }
+        }
     }
     return 0;
 }
@@ -336,8 +346,13 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
     }
 
     if (type == "error") {
-        log().error(opts_.name + " TDLib error: " + strField(j, "message") +
-                    " (code " + std::to_string(intField(j, "code")) + ")");
+        const std::string msg = strField(j, "message");
+        if (msg == "QUERY_ID_INVALID") {
+            log().debug(opts_.name + " callback query expired: " + msg);
+        } else {
+            log().error(opts_.name + " TDLib error: " + msg +
+                        " (code " + std::to_string(intField(j, "code")) + ")");
+        }
     }
 
     if (!authState) {
@@ -643,9 +658,10 @@ bool TelegramClient::forwardMessages(std::int64_t fromChatId,
 
 void TelegramClient::answerCallbackQuery(std::int64_t queryId, const std::string& text,
                                          bool alert) {
+    if (queryId == 0) return;
     json req;
     req["@type"] = "answerCallbackQuery";
-    req["callback_query_id"] = queryId;
+    req["callback_query_id"] = std::to_string(queryId);
     if (!text.empty()) req["text"] = text;
     req["show_alert"] = alert;
     client_.send(req.dump());

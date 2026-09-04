@@ -24,8 +24,18 @@ std::string strField(const json& j, const char* key) {
 // 64-bit range (ids/query-ids can exceed 2^53); numbers are stored as int64,
 // not double.
 std::int64_t intField(const json& j, const char* key) {
-    if (j.is_object() && j.contains(key) && j[key].is_number()) {
-        return j[key].get<std::int64_t>();
+    if (j.is_object() && j.contains(key)) {
+        const auto& val = j[key];
+        if (val.is_number()) {
+            return val.get<std::int64_t>();
+        }
+        if (val.is_string()) {
+            try {
+                return std::stoll(val.get<std::string>());
+            } catch (...) {
+                return 0;
+            }
+        }
     }
     return 0;
 }
@@ -86,10 +96,10 @@ std::int64_t MessageContext::reply(const std::string& html) const {
 }
 
 void CallbackContext::answer(const std::string& text, bool alert) const {
-    if (!client) return;
+    if (!client || queryId == 0) return;
     json req;
     req["@type"] = "answerCallbackQuery";
-    req["callback_query_id"] = queryId;
+    req["callback_query_id"] = std::to_string(queryId);
     if (!text.empty()) req["text"] = text;
     req["show_alert"] = alert;
     client->raw().send(req.dump());
