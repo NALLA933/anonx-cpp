@@ -35,7 +35,7 @@ log_error() {
 
 log_info "Checking system dependencies..."
 
-REQUIRED_PACKAGES=(cmake g++ make ffmpeg libsqlite3-dev nlohmann-json3-dev libssl-dev unzip libasound2 libpulse0)
+REQUIRED_PACKAGES=(cmake g++ make ffmpeg libsqlite3-dev nlohmann-json3-dev libssl-dev)
 MISSING_PACKAGES=()
 
 if command -v dpkg-query >/dev/null 2>&1; then
@@ -118,13 +118,17 @@ if [ "$NTGCALLS_FOUND" = false ]; then
     mkdir -p lib include /tmp/ntgcalls_extracted
     NTGCALLS_TMP="/tmp/ntgcalls_prebuilt.zip"
     if curl -sSL -f "https://github.com/pytgcalls/ntgcalls/releases/download/v2.2.5/ntgcalls.linux-x86_64-shared_libs.zip" -o "$NTGCALLS_TMP"; then
-        unzip -q -o "$NTGCALLS_TMP" -d /tmp/ntgcalls_extracted
-        cp /tmp/ntgcalls_extracted/lib/libntgcalls.so lib/
-        cp /tmp/ntgcalls_extracted/include/ntgcalls.h include/
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q -o "$NTGCALLS_TMP" -d /tmp/ntgcalls_extracted
+        else
+            python3 -m zipfile -e "$NTGCALLS_TMP" /tmp/ntgcalls_extracted
+        fi
+        cp /tmp/ntgcalls_extracted/lib/libntgcalls.so lib/ 2>/dev/null || true
+        cp /tmp/ntgcalls_extracted/include/ntgcalls.h include/ 2>/dev/null || true
         rm -rf "$NTGCALLS_TMP" /tmp/ntgcalls_extracted
 
         if [ "$(id -u)" -eq 0 ]; then
-            cp lib/libntgcalls.so /usr/local/lib/
+            cp lib/libntgcalls.so /usr/local/lib/ 2>/dev/null || true
             ldconfig 2>/dev/null || true
         elif command -v sudo >/dev/null 2>&1; then
             sudo cp lib/libntgcalls.so /usr/local/lib/ 2>/dev/null || true
