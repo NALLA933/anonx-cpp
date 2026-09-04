@@ -30,7 +30,11 @@ namespace {
 
 volatile std::sig_atomic_t g_stop = 0;
 
-extern "C" void onSignal(int) { g_stop = 1; }
+extern "C" void onSignal(int sig) {
+    std::fprintf(stderr, "\n[SIGNAL] Received signal %d (%s) — stopping bot cleanly...\n",
+                 sig, sig == SIGINT ? "SIGINT (Ctrl+C)" : (sig == SIGTERM ? "SIGTERM" : "OTHER"));
+    g_stop = sig ? sig : 1;
+}
 
 #if !defined(_WIN32)
 extern "C" void onCrashSignal(int sig) {
