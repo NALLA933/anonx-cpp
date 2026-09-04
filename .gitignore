@@ -26,12 +26,12 @@
 *.a
 *.lib
 
-# Executables
+# Executables anchored to root
 *.exe
 *.out
 *.app
-anonx
-anonx_*
+/anonx
+/anonx_*
 
 # CMake build outputs and caches
 build/
