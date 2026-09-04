@@ -1,14 +1,14 @@
-#ifndef ANONX_BUTTONS_HPP
-#define ANONX_BUTTONS_HPP
+#ifndef SENPAI_BUTTONS_HPP
+#define SENPAI_BUTTONS_HPP
 
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "anonx/bot_api.hpp"
+#include "senpai/bot_api.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace buttons {
 
 InlineKeyboard controls(std::int64_t chatId,

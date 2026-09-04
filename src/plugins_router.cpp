@@ -1,9 +1,9 @@
-#include "anonx/plugins_router.hpp"
+#include "senpai/plugins_router.hpp"
 
 #include <algorithm>
 #include <cctype>
 
-namespace anonx {
+namespace senpai {
 
 CommandEvent toCommandEvent(const MessageContext& ctx) {
     CommandEvent ev;

@@ -1,4 +1,4 @@
-#include "anonx/config.hpp"
+#include "senpai/config.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -7,7 +7,7 @@
 #include <sstream>
 #include <unordered_map>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 std::string trim(const std::string& s) {
@@ -135,7 +135,7 @@ Config Config::load(const std::string& envFile) {
     c.phone2 = env.str("PHONE_NUMBER2");
     c.phone3 = env.str("PHONE_NUMBER3");
 
-    c.db_path = env.str("DB_PATH", "anonx.db");
+    c.db_path = env.str("DB_PATH", "senpai.db");
 
     c.duration_limit_seconds = static_cast<int>(env.integer("DURATION_LIMIT", 60)) * 60;
     c.queue_limit    = static_cast<int>(env.integer("QUEUE_LIMIT", 20));

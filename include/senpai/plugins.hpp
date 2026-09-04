@@ -1,5 +1,5 @@
-#ifndef ANONX_PLUGINS_HPP
-#define ANONX_PLUGINS_HPP
+#ifndef SENPAI_PLUGINS_HPP
+#define SENPAI_PLUGINS_HPP
 
 #include <cstdint>
 #include <map>
@@ -7,16 +7,16 @@
 #include <string>
 #include <vector>
 
-#include "anonx/bot_api.hpp"
-#include "anonx/cache_manager.hpp"
-#include "anonx/call_manager.hpp"
-#include "anonx/config.hpp"
-#include "anonx/database.hpp"
-#include "anonx/lang.hpp"
-#include "anonx/queue.hpp"
-#include "anonx/youtube.hpp"
+#include "senpai/bot_api.hpp"
+#include "senpai/cache_manager.hpp"
+#include "senpai/call_manager.hpp"
+#include "senpai/config.hpp"
+#include "senpai/database.hpp"
+#include "senpai/lang.hpp"
+#include "senpai/queue.hpp"
+#include "senpai/youtube.hpp"
 
-namespace anonx {
+namespace senpai {
 
 struct CommandEvent {
     std::int64_t chatId = 0;

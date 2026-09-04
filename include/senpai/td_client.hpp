@@ -1,5 +1,5 @@
-#ifndef ANONX_TD_CLIENT_HPP
-#define ANONX_TD_CLIENT_HPP
+#ifndef SENPAI_TD_CLIENT_HPP
+#define SENPAI_TD_CLIENT_HPP
 
 #include <cstdint>
 #include <atomic>
@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 class TdClient {
 public:

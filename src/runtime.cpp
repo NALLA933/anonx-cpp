@@ -1,15 +1,15 @@
-#include "anonx/runtime.hpp"
+#include "senpai/runtime.hpp"
 
 #include <string>
 #include <utility>
 
-#include "anonx/logger.hpp"
-#include "anonx/plugins_router.hpp"
+#include "senpai/logger.hpp"
+#include "senpai/plugins_router.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
-Logger log() { return Logger("anonx.runtime"); }
+Logger log() { return Logger("senpai.runtime"); }
 
 std::string usernameFromLink(const std::string& link) {
     std::string s = link;
@@ -36,7 +36,7 @@ TelegramClient::Options botOptions(const Config& config,
     o.apiHash = config.api_hash;
     o.databaseDirectory = opts.botSessionDir;
     o.botToken = config.bot_token;
-    o.name = "anonx";
+    o.name = "senpai";
     return o;
 }
 
@@ -103,7 +103,7 @@ bool Runtime::start() {
         } else {
             for (int i = 0; i < assistantSlots; ++i) {
                 Userbot::AssistantSpec spec;
-                spec.name = "AnonyUB" + std::to_string(i + 1);
+                spec.name = "SenpaiUB" + std::to_string(i + 1);
                 if (static_cast<std::size_t>(i) < phones.size()) {
                     spec.phoneNumber = phones[i];
                 }

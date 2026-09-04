@@ -1,13 +1,13 @@
-#include "anonx/ntgcalls_transport.hpp"
+#include "senpai/ntgcalls_transport.hpp"
 
 #include <mutex>
 #include <string>
 
-#if defined(ANONX_WITH_NTGCALLS)
+#if defined(SENPAI_WITH_NTGCALLS)
 
 #include <ntgcalls/ntgcalls.hpp>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 void audioParamsFor(AudioQuality q, int& sampleRate, int& bits, int& channels) {
@@ -196,7 +196,7 @@ void NtgCallsTransport::setCallClosedHandler(CallClosedHandler handler) {
 
 #else
 
-namespace anonx {
+namespace senpai {
 
 struct NtgCallsTransport::Impl {
     explicit Impl(Signaling sig) : signaling(std::move(sig)) {}

@@ -1,4 +1,4 @@
-#include "anonx/lang.hpp"
+#include "senpai/lang.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,7 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace anonx {
+namespace senpai {
 
 std::string formatStr(const std::string& tmpl, const std::vector<std::string>& args) {
     std::string out;

@@ -1,6 +1,6 @@
-#include "anonx/youtube.hpp"
+#include "senpai/youtube.hpp"
 
-#include "anonx/logger.hpp"
+#include "senpai/logger.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -14,7 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;
@@ -248,7 +248,7 @@ std::optional<std::string> YouTube::download(const std::string& videoId, bool vi
 
 std::string YouTube::pickCookie() {
     if (!cookiesScanned_) {
-        const char* dirs[] = {"cookies", "anony/cookies"};
+        const char* dirs[] = {"cookies", "senpai/cookies", "anony/cookies"};
         for (const char* dir : dirs) {
             DIR* d = ::opendir(dir);
             if (!d) continue;
@@ -267,7 +267,7 @@ std::string YouTube::pickCookie() {
     if (cookies_.empty()) {
         if (!warnedNoCookies_) {
             warnedNoCookies_ = true;
-            Logger("anonx.youtube").warning("Cookies are missing; downloads might fail.");
+            Logger("senpai.youtube").warning("Cookies are missing; downloads might fail.");
         }
         return "";
     }

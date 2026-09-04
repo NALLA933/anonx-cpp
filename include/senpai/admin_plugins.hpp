@@ -1,5 +1,5 @@
-#ifndef ANONX_ADMIN_PLUGINS_HPP
-#define ANONX_ADMIN_PLUGINS_HPP
+#ifndef SENPAI_ADMIN_PLUGINS_HPP
+#define SENPAI_ADMIN_PLUGINS_HPP
 
 #include <atomic>
 #include <cstdint>
@@ -8,17 +8,17 @@
 #include <string>
 #include <vector>
 
-#include "anonx/bot_api.hpp"
-#include "anonx/buttons.hpp"
-#include "anonx/cache_manager.hpp"
-#include "anonx/call_manager.hpp"
-#include "anonx/config.hpp"
-#include "anonx/database.hpp"
-#include "anonx/lang.hpp"
-#include "anonx/plugins.hpp"
-#include "anonx/sysinfo.hpp"
+#include "senpai/bot_api.hpp"
+#include "senpai/buttons.hpp"
+#include "senpai/cache_manager.hpp"
+#include "senpai/call_manager.hpp"
+#include "senpai/config.hpp"
+#include "senpai/database.hpp"
+#include "senpai/lang.hpp"
+#include "senpai/plugins.hpp"
+#include "senpai/sysinfo.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class AdminPlugins {
 public:

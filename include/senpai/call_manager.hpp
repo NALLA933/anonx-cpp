@@ -1,5 +1,5 @@
-#ifndef ANONX_CALL_MANAGER_HPP
-#define ANONX_CALL_MANAGER_HPP
+#ifndef SENPAI_CALL_MANAGER_HPP
+#define SENPAI_CALL_MANAGER_HPP
 
 #include <cstdint>
 #include <functional>
@@ -9,11 +9,11 @@
 #include <string>
 #include <unordered_map>
 
-#include "anonx/cache_manager.hpp"
-#include "anonx/queue.hpp"
-#include "anonx/voice_transport.hpp"
+#include "senpai/cache_manager.hpp"
+#include "senpai/queue.hpp"
+#include "senpai/voice_transport.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class CallManager {
 public:

@@ -1,14 +1,14 @@
-#ifndef ANONX_NTGCALLS_TRANSPORT_HPP
-#define ANONX_NTGCALLS_TRANSPORT_HPP
+#ifndef SENPAI_NTGCALLS_TRANSPORT_HPP
+#define SENPAI_NTGCALLS_TRANSPORT_HPP
 
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
-#include "anonx/voice_transport.hpp"
+#include "senpai/voice_transport.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class NtgCallsTransport : public VoiceTransport {
 public:

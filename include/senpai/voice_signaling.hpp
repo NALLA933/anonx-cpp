@@ -1,12 +1,12 @@
-#ifndef ANONX_VOICE_SIGNALING_HPP
-#define ANONX_VOICE_SIGNALING_HPP
+#ifndef SENPAI_VOICE_SIGNALING_HPP
+#define SENPAI_VOICE_SIGNALING_HPP
 
 #include <functional>
 
-#include "anonx/ntgcalls_transport.hpp"
-#include "anonx/telegram_client.hpp"
+#include "senpai/ntgcalls_transport.hpp"
+#include "senpai/telegram_client.hpp"
 
-namespace anonx {
+namespace senpai {
 
 NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant);
 

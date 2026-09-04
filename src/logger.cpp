@@ -1,10 +1,10 @@
-#include "anonx/logger.hpp"
+#include "senpai/logger.hpp"
 
 #include <cstdio>
 #include <ctime>
 #include <string>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 const char* levelName(LogLevel lvl) {

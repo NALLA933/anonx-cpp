@@ -12,7 +12,7 @@
 struct sqlite3;
 struct sqlite3_stmt;
 
-namespace anonx {
+namespace senpai {
 
 class DatabaseError : public std::runtime_error {
 public:

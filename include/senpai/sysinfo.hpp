@@ -1,11 +1,11 @@
-#ifndef ANONX_SYSINFO_HPP
-#define ANONX_SYSINFO_HPP
+#ifndef SENPAI_SYSINFO_HPP
+#define SENPAI_SYSINFO_HPP
 
 #include <chrono>
 #include <cstdint>
 #include <string>
 
-namespace anonx {
+namespace senpai {
 
 class SystemInfo {
 public:

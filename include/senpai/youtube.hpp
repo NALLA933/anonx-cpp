@@ -1,5 +1,5 @@
-#ifndef ANONX_YOUTUBE_HPP
-#define ANONX_YOUTUBE_HPP
+#ifndef SENPAI_YOUTUBE_HPP
+#define SENPAI_YOUTUBE_HPP
 
 #include <cstdint>
 #include <optional>
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 struct Track {
     std::string  id;

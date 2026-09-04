@@ -1,5 +1,5 @@
-#ifndef ANONX_QUEUE_HPP
-#define ANONX_QUEUE_HPP
+#ifndef SENPAI_QUEUE_HPP
+#define SENPAI_QUEUE_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -10,9 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "anonx/youtube.hpp"
+#include "senpai/youtube.hpp"
 
-namespace anonx {
+namespace senpai {
 
 using MediaItem = Track;
 

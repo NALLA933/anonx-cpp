@@ -1,4 +1,4 @@
-#include "anonx/telegram_client.hpp"
+#include "senpai/telegram_client.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -11,14 +11,14 @@
 
 #include <sys/stat.h>
 
-#include "anonx/logger.hpp"
+#include "senpai/logger.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;
 
-Logger log() { return Logger("anonx.telegram"); }
+Logger log() { return Logger("senpai.telegram"); }
 
 std::string strField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key) && j[key].is_string()) {

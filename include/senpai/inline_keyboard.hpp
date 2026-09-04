@@ -1,11 +1,11 @@
-#ifndef ANONX_INLINE_KEYBOARD_HPP
-#define ANONX_INLINE_KEYBOARD_HPP
+#ifndef SENPAI_INLINE_KEYBOARD_HPP
+#define SENPAI_INLINE_KEYBOARD_HPP
 
 #include <string>
 #include <utility>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 struct InlineButton {
     enum class Kind { Callback, Url, Copy };

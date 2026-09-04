@@ -1,10 +1,10 @@
-#include "anonx/database.hpp"
+#include "senpai/database.hpp"
 
 #include <sqlite3.h>
 
 #include <iostream>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 class Stmt {

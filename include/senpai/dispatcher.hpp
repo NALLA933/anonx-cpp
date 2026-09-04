@@ -1,5 +1,5 @@
-#ifndef ANONX_DISPATCHER_HPP
-#define ANONX_DISPATCHER_HPP
+#ifndef SENPAI_DISPATCHER_HPP
+#define SENPAI_DISPATCHER_HPP
 
 #include <atomic>
 #include <condition_variable>
@@ -12,9 +12,9 @@
 #include <thread>
 #include <vector>
 
-#include "anonx/telegram_client.hpp"
+#include "senpai/telegram_client.hpp"
 
-namespace anonx {
+namespace senpai {
 
 enum class ChatType { Private, Group };
 

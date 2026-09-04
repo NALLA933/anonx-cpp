@@ -13,7 +13,7 @@ NC='\033[0m'
 clear 2>/dev/null || true
 echo -e "${CYAN}${BOLD}"
 echo "======================================================================"
-echo "          AnonXMusic (C++ Port) — 1-Click Installer & Runner          "
+echo "          SenpaiMusic (C++ Port) — 1-Click Installer & Runner          "
 echo "======================================================================"
 echo -e "${NC}"
 
@@ -161,7 +161,7 @@ SESSION_NAME=assistant
 DATA_DIR=./data/tdlib_session
 PHONE_NUMBER=$INP_PHONE_NUMBER
 
-DB_PATH=anonx.db
+DB_PATH=senpai.db
 
 DURATION_LIMIT=60
 QUEUE_LIMIT=20
@@ -182,12 +182,12 @@ else
 fi
 
 echo ""
-log_info "Configuring and compiling anonx-cpp via CMake (ANONX_WITH_TDLIB=ON)..."
+log_info "Configuring and compiling senpai-cpp via CMake (SENPAI_WITH_TDLIB=ON)..."
 
 mkdir -p build
 NPROC=$(nproc 2>/dev/null || echo 4)
 
-if ! cmake -B build -S . -DANONX_WITH_TDLIB=ON; then
+if ! cmake -B build -S . -DSENPAI_WITH_TDLIB=ON; then
     echo ""
     log_error "CMake configuration failed!"
     echo "Please check missing dependencies or CMakeLists.txt logs."
@@ -205,11 +205,12 @@ log_success "Build completed successfully."
 
 echo ""
 echo -e "${GREEN}${BOLD}======================================================================${NC}"
-echo -e "${GREEN}${BOLD}                   Starting AnonXMusic (C++ Bot)                     ${NC}"
+echo -e "${GREEN}${BOLD}                   Starting SenpaiMusic (C++ Bot)                     ${NC}"
 echo -e "${GREEN}${BOLD}======================================================================${NC}"
 log_info "Launching bot process..."
 echo -e "${YELLOW}NOTE: Check your Telegram app for the official login code and enter it below.${NC}"
 echo ""
 
 export LD_LIBRARY_PATH="/usr/local/lib:$PWD/lib:${LD_LIBRARY_PATH:-}"
-exec ./build/anonx "$ENV_FILE"
+ln -sf senpai ./build/anonx 2>/dev/null || true
+exec ./build/senpai "$ENV_FILE"

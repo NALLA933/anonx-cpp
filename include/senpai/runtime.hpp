@@ -1,5 +1,5 @@
-#ifndef ANONX_RUNTIME_HPP
-#define ANONX_RUNTIME_HPP
+#ifndef SENPAI_RUNTIME_HPP
+#define SENPAI_RUNTIME_HPP
 
 #include <atomic>
 #include <cstdint>
@@ -7,22 +7,22 @@
 #include <string>
 #include <vector>
 
-#include "anonx/admin_plugins.hpp"
-#include "anonx/cache_manager.hpp"
-#include "anonx/config.hpp"
-#include "anonx/database.hpp"
-#include "anonx/dispatcher.hpp"
-#include "anonx/lang.hpp"
-#include "anonx/plugins.hpp"
-#include "anonx/queue.hpp"
-#include "anonx/sysinfo.hpp"
-#include "anonx/telegram_bot_api.hpp"
-#include "anonx/telegram_client.hpp"
-#include "anonx/userbot.hpp"
-#include "anonx/voice_transport.hpp"
-#include "anonx/youtube.hpp"
+#include "senpai/admin_plugins.hpp"
+#include "senpai/cache_manager.hpp"
+#include "senpai/config.hpp"
+#include "senpai/database.hpp"
+#include "senpai/dispatcher.hpp"
+#include "senpai/lang.hpp"
+#include "senpai/plugins.hpp"
+#include "senpai/queue.hpp"
+#include "senpai/sysinfo.hpp"
+#include "senpai/telegram_bot_api.hpp"
+#include "senpai/telegram_client.hpp"
+#include "senpai/userbot.hpp"
+#include "senpai/voice_transport.hpp"
+#include "senpai/youtube.hpp"
 
-namespace anonx {
+namespace senpai {
 
 struct RuntimeOptions {
 

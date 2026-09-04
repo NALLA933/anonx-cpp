@@ -1,5 +1,5 @@
-#ifndef ANONX_TELEGRAM_CLIENT_HPP
-#define ANONX_TELEGRAM_CLIENT_HPP
+#ifndef SENPAI_TELEGRAM_CLIENT_HPP
+#define SENPAI_TELEGRAM_CLIENT_HPP
 
 #include <cstdint>
 #include <functional>
@@ -9,10 +9,10 @@
 #include <string>
 #include <vector>
 
-#include "anonx/inline_keyboard.hpp"
-#include "anonx/td_client.hpp"
+#include "senpai/inline_keyboard.hpp"
+#include "senpai/td_client.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class TelegramClient {
 public:
@@ -31,7 +31,7 @@ public:
         std::function<std::string()> codeProvider;
         std::function<std::string()> passwordProvider;
 
-        std::string deviceModel = "AnonXMusic";
+        std::string deviceModel = "SenpaiMusic";
         std::string applicationVersion = "1.0";
         std::string systemLanguageCode = "en";
     };

@@ -1,4 +1,4 @@
-# AnonXMusic (C++ Port)
+# SenpaiMusic (C++ Port)
 
 <div align="center">
 
@@ -28,16 +28,16 @@
 
 ## ⚡ Quick Start (Beginner 1-Click Deploy)
 
-Deploying `anonx-cpp` on Ubuntu, Debian, or WSL2 is completely automated using the included `start.sh` runner.
+Deploying `senpai-cpp` on Ubuntu, Debian, or WSL2 is completely automated using the included `start.sh` runner.
 
 ### 3-Step Setup
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/TeamFallen/AnonXMusic.git anonx-cpp
+git clone https://github.com/NALLA933/anonx-cpp.git senpai-cpp
 
 # 2. Enter directory
-cd anonx-cpp
+cd senpai-cpp
 
 # 3. Run 1-click installer
 ./start.sh
@@ -85,7 +85,7 @@ nano .env
 | `PHONE_NUMBER` | Optional | Phone number for the assistant account | `+1234567890` |
 | `SESSION_NAME` | Optional | Identifier for the assistant session | `assistant` |
 | `DATA_DIR` | Optional | Directory where TDLib stores session keys | `./data/tdlib_session` |
-| `DB_PATH` | Optional | SQLite database path | `anonx.db` |
+| `DB_PATH` | Optional | SQLite database path | `senpai.db` |
 | `DURATION_LIMIT` | Optional | Max allowed track duration in minutes | `60` |
 | `QUEUE_LIMIT` | Optional | Max tracks in per-chat queue | `20` |
 | `AUTO_LEAVE` | Optional | Auto-leave voice chat when empty (`True`/`False`) | `False` |
@@ -108,7 +108,7 @@ ctest --test-dir build --output-on-failure
 ### 4. Launch the Bot
 
 ```bash
-./build/anonx .env
+./build/senpai .env
 ```
 
 ---
@@ -119,15 +119,15 @@ Unlike legacy Python music bots, TDLib does **not** use Pyrogram base64 string s
 
 1. On first startup, the console will request the assistant's phone number if `PHONE_NUMBER` is not already specified in `.env`:
    ```text
-   Enter phone number for AnonyUB1 (e.g. +1234567890):
+   Enter phone number for SenpaiUB1 (e.g. +1234567890):
    ```
 2. Telegram will send a login verification code via official Telegram notification or SMS:
    ```text
-   Enter login code for AnonyUB1: 12345
+   Enter login code for SenpaiUB1: 12345
    ```
 3. If your account has Two-Step Verification (Cloud Password) enabled, provide your password:
    ```text
-   Enter 2FA password for AnonyUB1 (blank if none): your_password
+   Enter 2FA password for SenpaiUB1 (blank if none): your_password
    ```
 4. Once authenticated, TDLib stores the session keys inside `./data/tdlib_session`. Subsequent restarts log in **automatically** without requiring prompts!
 
@@ -169,11 +169,11 @@ Unlike legacy Python music bots, TDLib does **not** use Pyrogram base64 string s
 ## 📂 Repository Structure
 
 ```
-anonx-cpp/
+senpai-cpp/
 ├── CMakeLists.txt             # Build system configuration
 ├── start.sh                   # 1-click installer and interactive runner
 ├── sample.env                 # Template environment variables
-├── include/anonx/             # Public C++ headers
+├── include/senpai/            # Public C++ headers
 │   ├── config.hpp             # Configuration loader & validation
 │   ├── database.hpp           # Embedded SQLite data layer
 │   ├── telegram_client.hpp    # High-level account client (Bot & Userbot)
@@ -199,4 +199,4 @@ anonx-cpp/
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-Built with passion by the **AnonX** open-source team.
+Built with passion by the **Senpai** open-source team.

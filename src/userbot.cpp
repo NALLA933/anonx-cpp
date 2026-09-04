@@ -1,17 +1,17 @@
-#include "anonx/userbot.hpp"
+#include "senpai/userbot.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <iostream>
 
-#include "anonx/logger.hpp"
+#include "senpai/logger.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;
 
-Logger log() { return Logger("anonx.userbot"); }
+Logger log() { return Logger("senpai.userbot"); }
 
 std::function<std::string()> stdinPrompt(const std::string& prompt) {
     return [prompt]() -> std::string {

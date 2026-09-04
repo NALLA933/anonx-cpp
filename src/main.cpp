@@ -7,28 +7,28 @@
 
 #include <sys/stat.h>
 
-#include "anonx/app.hpp"
+#include "senpai/app.hpp"
 
-#if defined(ANONX_WITH_TDLIB)
+#if defined(SENPAI_WITH_TDLIB)
 #include <chrono>
 #include <memory>
 #include <thread>
 
-#include "anonx/config.hpp"
-#include "anonx/logger.hpp"
-#include "anonx/runtime.hpp"
-#include "anonx/userbot.hpp"
+#include "senpai/config.hpp"
+#include "senpai/logger.hpp"
+#include "senpai/runtime.hpp"
+#include "senpai/userbot.hpp"
 
-#if defined(ANONX_WITH_NTGCALLS)
-#include "anonx/voice_signaling.hpp"
+#if defined(SENPAI_WITH_NTGCALLS)
+#include "senpai/voice_signaling.hpp"
 #else
-#include "anonx/null_voice_transport.hpp"
+#include "senpai/null_voice_transport.hpp"
 #endif
 #endif
 
 namespace {
 
-#if defined(ANONX_WITH_TDLIB)
+#if defined(SENPAI_WITH_TDLIB)
 
 volatile std::sig_atomic_t g_stop = 0;
 
@@ -38,7 +38,7 @@ bool makeDir(const char* path) {
     return ::mkdir(path, 0755) == 0 || errno == EEXIST;
 }
 
-bool ensureDirs(const anonx::Logger& log) {
+bool ensureDirs(const senpai::Logger& log) {
     for (const char* dir : {"cache", "downloads", "tdlib", "data", "data/tdlib_session"}) {
         if (!makeDir(dir)) {
             log.critical(std::string("cannot create directory '") + dir + "': " +
@@ -50,35 +50,35 @@ bool ensureDirs(const anonx::Logger& log) {
 }
 
 int runBot(const std::string& envFile) {
-    anonx::LogSink::instance().init("log.txt");
-    anonx::Logger log("anonx");
-    log.info(std::string("AnonXMusic C++ ") + anonx::App::kVersion + " — initialising");
+    senpai::LogSink::instance().init("log.txt");
+    senpai::Logger log("senpai");
+    log.info(std::string("SenpaiMusic C++ ") + senpai::App::kVersion + " — initialising");
 
-    anonx::Config config = anonx::Config::load(envFile);
+    senpai::Config config = senpai::Config::load(envFile);
     config.check();
 
     if (!ensureDirs(log)) return 1;
 
-    std::unique_ptr<anonx::Runtime> runtime;
+    std::unique_ptr<senpai::Runtime> runtime;
 
-#if defined(ANONX_WITH_NTGCALLS)
+#if defined(SENPAI_WITH_NTGCALLS)
 
-    anonx::NtgCallsTransport transport(anonx::makeDeferredAssistantSignaling(
-        [&runtime]() -> anonx::TelegramClient* {
+    senpai::NtgCallsTransport transport(senpai::makeDeferredAssistantSignaling(
+        [&runtime]() -> senpai::TelegramClient* {
             if (!runtime) return nullptr;
-            for (const std::unique_ptr<anonx::TelegramClient>& c :
+            for (const std::unique_ptr<senpai::TelegramClient>& c :
                  runtime->userbot().clients()) {
                 if (c && c->authorized()) return c.get();
             }
             return nullptr;
         }));
 #else
-    anonx::NullVoiceTransport transport;
-    log.warning("built without NTgCalls (-DANONX_WITH_NTGCALLS=ON) — every "
+    senpai::NullVoiceTransport transport;
+    log.warning("built without NTgCalls (-DSENPAI_WITH_NTGCALLS=ON) — every "
                 "command works, but streaming will report a server error");
 #endif
 
-    runtime = std::make_unique<anonx::Runtime>(config, transport);
+    runtime = std::make_unique<senpai::Runtime>(config, transport);
     if (!runtime->start()) {
         log.critical("startup failed — see the messages above");
         return 1;
@@ -99,15 +99,15 @@ int runBot(const std::string& envFile) {
 
     runtime->stop();
     runtime.reset();
-    anonx::LogSink::instance().close();
+    senpai::LogSink::instance().close();
     return 0;
 }
 
 #else
 
 int runSkeleton(const std::string& envFile) {
-    anonx::App app(envFile);
-    app.log().warning("built without TDLib (-DANONX_WITH_TDLIB=ON) — running the "
+    senpai::App app(envFile);
+    app.log().warning("built without TDLib (-DSENPAI_WITH_TDLIB=ON) — running the "
                       "data-layer skeleton only; no Telegram connection");
     app.boot();
     app.run();
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
     try {
 
         std::setvbuf(stdout, nullptr, _IOLBF, 0);
-#if defined(ANONX_WITH_TDLIB)
+#if defined(SENPAI_WITH_TDLIB)
         return runBot(envFile);
 #else
         return runSkeleton(envFile);

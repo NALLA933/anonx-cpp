@@ -1,11 +1,11 @@
-#include "anonx/dispatcher.hpp"
+#include "senpai/dispatcher.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;

@@ -1,5 +1,5 @@
-#ifndef ANONX_LOGGER_HPP
-#define ANONX_LOGGER_HPP
+#ifndef SENPAI_LOGGER_HPP
+#define SENPAI_LOGGER_HPP
 
 #include <cstddef>
 #include <cstdio>
@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-namespace anonx {
+namespace senpai {
 
 enum class LogLevel {
     Debug = 10,

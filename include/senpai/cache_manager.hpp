@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 class CacheManager {
 public:

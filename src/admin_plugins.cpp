@@ -1,13 +1,13 @@
-#include "anonx/admin_plugins.hpp"
+#include "senpai/admin_plugins.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <sstream>
 
-#include "anonx/guards.hpp"
+#include "senpai/guards.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 std::vector<std::string> splitWs(const std::string& text) {
@@ -58,7 +58,7 @@ bool hasFlag(const std::vector<std::string>& tokens, const std::string& flag) {
 
 const char kNoUsername[] = "-";
 
-const char kSourceUrl[] = "https://github.com/AnonymousX1025/AnonXMusic";
+const char kSourceUrl[] = "https://github.com/NALLA933/anonx-cpp";
 
 }
 

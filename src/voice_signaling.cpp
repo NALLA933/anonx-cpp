@@ -1,4 +1,4 @@
-#include "anonx/voice_signaling.hpp"
+#include "senpai/voice_signaling.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -8,14 +8,14 @@
 #include <string>
 #include <unordered_map>
 
-#include "anonx/logger.hpp"
+#include "senpai/logger.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;
 
-Logger log() { return Logger("anonx.voice.signaling"); }
+Logger log() { return Logger("senpai.voice.signaling"); }
 
 std::string strField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key) && j[key].is_string()) {

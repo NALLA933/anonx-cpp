@@ -1,6 +1,6 @@
-#include "anonx/guards.hpp"
+#include "senpai/guards.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace guards {
 
 bool isAdmin(BotApi& api, std::int64_t chatId, std::int64_t userId) {

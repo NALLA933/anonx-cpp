@@ -1,12 +1,12 @@
-#ifndef ANONX_VOICE_TRANSPORT_HPP
-#define ANONX_VOICE_TRANSPORT_HPP
+#ifndef SENPAI_VOICE_TRANSPORT_HPP
+#define SENPAI_VOICE_TRANSPORT_HPP
 
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
 #include <string>
 
-namespace anonx {
+namespace senpai {
 
 enum class AudioQuality { Low, Medium, High };
 

@@ -1,4 +1,4 @@
-#include "anonx/plugins.hpp"
+#include "senpai/plugins.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -6,10 +6,10 @@
 #include <sstream>
 #include <utility>
 
-#include "anonx/buttons.hpp"
-#include "anonx/guards.hpp"
+#include "senpai/buttons.hpp"
+#include "senpai/guards.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 std::vector<std::string> splitWs(const std::string& text) {

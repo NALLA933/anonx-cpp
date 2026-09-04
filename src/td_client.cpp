@@ -1,4 +1,4 @@
-#include "anonx/td_client.hpp"
+#include "senpai/td_client.hpp"
 
 #include <td/telegram/td_json_client.h>
 
@@ -9,7 +9,7 @@
 #include <thread>
 #include <unordered_map>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 using nlohmann::json;

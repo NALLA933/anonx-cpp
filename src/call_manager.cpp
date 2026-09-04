@@ -1,8 +1,8 @@
-#include "anonx/call_manager.hpp"
+#include "senpai/call_manager.hpp"
 
 #include <utility>
 
-namespace anonx {
+namespace senpai {
 
 CallManager::CallManager(VoiceTransport& transport, Queue& queue, CacheManager& cache)
     : transport_(transport), queue_(queue), cache_(cache) {

@@ -1,7 +1,7 @@
-#include "anonx/app.hpp"
+#include "senpai/app.hpp"
 
-#include "anonx/cache_manager.hpp"
-#include "anonx/database.hpp"
+#include "senpai/cache_manager.hpp"
+#include "senpai/database.hpp"
 
 #include <cerrno>
 #include <csignal>
@@ -15,7 +15,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 volatile std::sig_atomic_t g_stopFlag = 0;
@@ -38,10 +38,10 @@ bool onPath(const std::string& tool) {
 }
 
 App::App(const std::string& envFile)
-    : config_(Config::load(envFile)), logger_("anonx") {
+    : config_(Config::load(envFile)), logger_("senpai") {
 
     LogSink::instance().init("log.txt");
-    logger_.info(std::string("AnonXMusic C++ ") + kVersion + " — initialising");
+    logger_.info(std::string("SenpaiMusic C++ ") + kVersion + " — initialising");
 
     try {
         config_.check();

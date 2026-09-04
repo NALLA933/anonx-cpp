@@ -1,4 +1,4 @@
-#include "anonx/sysinfo.hpp"
+#include "senpai/sysinfo.hpp"
 
 #include <sys/statvfs.h>
 #include <sys/utsname.h>
@@ -11,7 +11,7 @@
 #include <sstream>
 #include <thread>
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 std::uint64_t memInfoKb(const char* key) {

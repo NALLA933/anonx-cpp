@@ -1,12 +1,12 @@
-#ifndef ANONX_NULL_VOICE_TRANSPORT_HPP
-#define ANONX_NULL_VOICE_TRANSPORT_HPP
+#ifndef SENPAI_NULL_VOICE_TRANSPORT_HPP
+#define SENPAI_NULL_VOICE_TRANSPORT_HPP
 
 #include <cstdint>
 #include <utility>
 
-#include "anonx/voice_transport.hpp"
+#include "senpai/voice_transport.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class NullVoiceTransport : public VoiceTransport {
 public:

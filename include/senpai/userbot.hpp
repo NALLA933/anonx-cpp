@@ -1,5 +1,5 @@
-#ifndef ANONX_USERBOT_HPP
-#define ANONX_USERBOT_HPP
+#ifndef SENPAI_USERBOT_HPP
+#define SENPAI_USERBOT_HPP
 
 #include <cstdint>
 #include <functional>
@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "anonx/telegram_client.hpp"
+#include "senpai/telegram_client.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class Userbot {
 public:

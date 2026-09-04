@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(anonx_cpp LANGUAGES CXX)
+project(senpai_cpp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,46 +21,46 @@ if(NOT nlohmann_json_FOUND)
   FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
-add_library(anonx_data
+add_library(senpai_data
   src/database.cpp
 )
-target_include_directories(anonx_data
+target_include_directories(senpai_data
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(anonx_data
+target_link_libraries(senpai_data
   PUBLIC SQLite::SQLite3 Threads::Threads)
-target_compile_options(anonx_data PRIVATE -Wall -Wextra)
+target_compile_options(senpai_data PRIVATE -Wall -Wextra)
 
-add_library(anonx_core
+add_library(senpai_core
   src/config.cpp
   src/logger.cpp
   src/app.cpp
   src/youtube.cpp
 )
-target_link_libraries(anonx_core
-  PUBLIC anonx_data
+target_link_libraries(senpai_core
+  PUBLIC senpai_data
   PRIVATE nlohmann_json::nlohmann_json)
-target_compile_options(anonx_core PRIVATE -Wall -Wextra)
+target_compile_options(senpai_core PRIVATE -Wall -Wextra)
 
-add_library(anonx_voice
+add_library(senpai_voice
   src/call_manager.cpp
 )
-target_include_directories(anonx_voice
+target_include_directories(senpai_voice
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(anonx_voice PUBLIC Threads::Threads)
-target_compile_options(anonx_voice PRIVATE -Wall -Wextra)
+target_link_libraries(senpai_voice PUBLIC Threads::Threads)
+target_compile_options(senpai_voice PRIVATE -Wall -Wextra)
 
-option(ANONX_WITH_NTGCALLS "Build the real NTgCalls voice transport" OFF)
-if(ANONX_WITH_NTGCALLS)
+option(SENPAI_WITH_NTGCALLS "Build the real NTgCalls voice transport" OFF)
+if(SENPAI_WITH_NTGCALLS)
   find_package(ntgcalls REQUIRED)
-  add_library(anonx_voice_ntgcalls src/ntgcalls_transport.cpp)
-  target_compile_definitions(anonx_voice_ntgcalls PUBLIC ANONX_WITH_NTGCALLS)
-  target_link_libraries(anonx_voice_ntgcalls
-    PUBLIC anonx_voice ntgcalls)
-  target_compile_options(anonx_voice_ntgcalls PRIVATE -Wall -Wextra)
-  message(STATUS "ANONX_WITH_NTGCALLS=ON — building anonx_voice_ntgcalls against NTgCalls")
+  add_library(senpai_voice_ntgcalls src/ntgcalls_transport.cpp)
+  target_compile_definitions(senpai_voice_ntgcalls PUBLIC SENPAI_WITH_NTGCALLS)
+  target_link_libraries(senpai_voice_ntgcalls
+    PUBLIC senpai_voice ntgcalls)
+  target_compile_options(senpai_voice_ntgcalls PRIVATE -Wall -Wextra)
+  message(STATUS "SENPAI_WITH_NTGCALLS=ON — building senpai_voice_ntgcalls against NTgCalls")
 endif()
 
-add_library(anonx_plugins
+add_library(senpai_plugins
   src/lang.cpp
   src/buttons.cpp
   src/guards.cpp
@@ -68,16 +68,16 @@ add_library(anonx_plugins
   src/sysinfo.cpp
   src/admin_plugins.cpp
 )
-target_link_libraries(anonx_plugins
-  PUBLIC anonx_core anonx_voice
+target_link_libraries(senpai_plugins
+  PUBLIC senpai_core senpai_voice
   PRIVATE nlohmann_json::nlohmann_json)
-target_compile_options(anonx_plugins PRIVATE -Wall -Wextra)
+target_compile_options(senpai_plugins PRIVATE -Wall -Wextra)
 
-add_executable(anonx src/main.cpp)
-target_link_libraries(anonx PRIVATE anonx_core)
-target_compile_options(anonx PRIVATE -Wall -Wextra)
+add_executable(senpai src/main.cpp)
+target_link_libraries(senpai PRIVATE senpai_core)
+target_compile_options(senpai PRIVATE -Wall -Wextra)
 
-set(ANONX_TG_SOURCES
+set(SENPAI_TG_SOURCES
   src/td_client.cpp
   src/telegram_client.cpp
   src/dispatcher.cpp
@@ -87,8 +87,8 @@ set(ANONX_TG_SOURCES
   src/runtime.cpp
 )
 
-option(ANONX_WITH_TDLIB "Build the Telegram layer against a real TDLib (Td::TdJson)" OFF)
-if(ANONX_WITH_TDLIB)
+option(SENPAI_WITH_TDLIB "Build the Telegram layer against a real TDLib (Td::TdJson)" OFF)
+if(SENPAI_WITH_TDLIB OR ANONX_WITH_TDLIB)
   find_package(Td QUIET)
   if(NOT TARGET Td::TdJson)
     find_library(TDJSON_LIB NAMES tdjson libtdjson
@@ -107,29 +107,29 @@ if(ANONX_WITH_TDLIB)
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
       )
     else()
-      message(FATAL_ERROR "ANONX_WITH_TDLIB=ON but neither Td CMake package nor libtdjson.so was found.")
+      message(FATAL_ERROR "SENPAI_WITH_TDLIB=ON but neither Td CMake package nor libtdjson.so was found.")
     endif()
   endif()
-  add_library(anonx_tg ${ANONX_TG_SOURCES})
-  target_link_libraries(anonx_tg
-    PUBLIC anonx_core Td::TdJson
+  add_library(senpai_tg ${SENPAI_TG_SOURCES})
+  target_link_libraries(senpai_tg
+    PUBLIC senpai_core Td::TdJson
     PRIVATE nlohmann_json::nlohmann_json)
-  target_compile_options(anonx_tg PRIVATE -Wall -Wextra)
-  message(STATUS "ANONX_WITH_TDLIB=ON — building anonx_tg against Td::TdJson")
+  target_compile_options(senpai_tg PRIVATE -Wall -Wextra)
+  message(STATUS "SENPAI_WITH_TDLIB=ON — building senpai_tg against Td::TdJson")
 
-  target_sources(anonx_tg PRIVATE src/plugins_router.cpp)
-  target_link_libraries(anonx_tg PUBLIC anonx_plugins)
+  target_sources(senpai_tg PRIVATE src/plugins_router.cpp)
+  target_link_libraries(senpai_tg PUBLIC senpai_plugins)
 
-  target_compile_definitions(anonx PRIVATE ANONX_WITH_TDLIB)
-  target_link_libraries(anonx PRIVATE anonx_tg)
-  set_target_properties(anonx PROPERTIES
+  target_compile_definitions(senpai PRIVATE SENPAI_WITH_TDLIB)
+  target_link_libraries(senpai PRIVATE senpai_tg)
+  set_target_properties(senpai PROPERTIES
     BUILD_RPATH "$ORIGIN:$ORIGIN/../lib:/usr/local/lib:/usr/lib"
     INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:/usr/local/lib:/usr/lib"
   )
-  if(ANONX_WITH_NTGCALLS)
-    target_link_libraries(anonx PRIVATE anonx_voice_ntgcalls)
-    message(STATUS "anonx: full build — TDLib + NTgCalls")
+  if(SENPAI_WITH_NTGCALLS)
+    target_link_libraries(senpai PRIVATE senpai_voice_ntgcalls)
+    message(STATUS "senpai: full build — TDLib + NTgCalls")
   else()
-    message(STATUS "anonx: TDLib without NTgCalls — streaming disabled")
+    message(STATUS "senpai: TDLib without NTgCalls — streaming disabled")
   endif()
 endif()

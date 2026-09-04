@@ -1,15 +1,15 @@
-#ifndef ANONX_APP_HPP
-#define ANONX_APP_HPP
+#ifndef SENPAI_APP_HPP
+#define SENPAI_APP_HPP
 
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <string>
 
-#include "anonx/config.hpp"
-#include "anonx/logger.hpp"
+#include "senpai/config.hpp"
+#include "senpai/logger.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class Database;
 class CacheManager;

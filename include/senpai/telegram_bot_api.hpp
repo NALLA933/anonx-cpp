@@ -1,5 +1,5 @@
-#ifndef ANONX_TELEGRAM_BOT_API_HPP
-#define ANONX_TELEGRAM_BOT_API_HPP
+#ifndef SENPAI_TELEGRAM_BOT_API_HPP
+#define SENPAI_TELEGRAM_BOT_API_HPP
 
 #include <cstdint>
 #include <mutex>
@@ -7,10 +7,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "anonx/bot_api.hpp"
-#include "anonx/telegram_client.hpp"
+#include "senpai/bot_api.hpp"
+#include "senpai/telegram_client.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class TelegramBotApi : public BotApi {
 public:

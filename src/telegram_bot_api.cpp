@@ -1,6 +1,6 @@
-#include "anonx/telegram_bot_api.hpp"
+#include "senpai/telegram_bot_api.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace {
 
 std::string escape(const std::string& s) {

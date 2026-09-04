@@ -1,13 +1,13 @@
-#ifndef ANONX_BOT_API_HPP
-#define ANONX_BOT_API_HPP
+#ifndef SENPAI_BOT_API_HPP
+#define SENPAI_BOT_API_HPP
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "anonx/inline_keyboard.hpp"
+#include "senpai/inline_keyboard.hpp"
 
-namespace anonx {
+namespace senpai {
 
 class BotApi {
 public:
@@ -53,7 +53,7 @@ public:
 
     virtual std::string getChatMemberStatus(std::int64_t chatId, std::int64_t userId) = 0;
 
-    virtual std::string botName() { return "AnonXMusic"; }
+    virtual std::string botName() { return "SenpaiMusic"; }
     virtual std::string botUsername() { return ""; }
 
     virtual std::string chatTitle(std::int64_t chatId) { (void)chatId; return ""; }

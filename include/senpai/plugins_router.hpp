@@ -1,12 +1,12 @@
-#ifndef ANONX_PLUGINS_ROUTER_HPP
-#define ANONX_PLUGINS_ROUTER_HPP
+#ifndef SENPAI_PLUGINS_ROUTER_HPP
+#define SENPAI_PLUGINS_ROUTER_HPP
 
-#include "anonx/admin_plugins.hpp"
-#include "anonx/database.hpp"
-#include "anonx/dispatcher.hpp"
-#include "anonx/plugins.hpp"
+#include "senpai/admin_plugins.hpp"
+#include "senpai/database.hpp"
+#include "senpai/dispatcher.hpp"
+#include "senpai/plugins.hpp"
 
-namespace anonx {
+namespace senpai {
 
 CommandEvent toCommandEvent(const MessageContext& ctx);
 ButtonEvent  toButtonEvent(const CallbackContext& ctx);

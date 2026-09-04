@@ -1,12 +1,12 @@
-#ifndef ANONX_CONFIG_HPP
-#define ANONX_CONFIG_HPP
+#ifndef SENPAI_CONFIG_HPP
+#define SENPAI_CONFIG_HPP
 
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 class ConfigError : public std::runtime_error {
 public:
@@ -32,7 +32,7 @@ public:
     std::string  phone2;
     std::string  phone3;
 
-    std::string db_path = "anonx.db";
+    std::string db_path = "senpai.db";
 
     int duration_limit_seconds = 60 * 60;
     int queue_limit = 20;

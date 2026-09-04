@@ -1,6 +1,6 @@
-#include "anonx/buttons.hpp"
+#include "senpai/buttons.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace buttons {
 
 InlineKeyboard controls(std::int64_t chatId, const std::string& status,

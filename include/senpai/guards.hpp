@@ -1,17 +1,17 @@
-#ifndef ANONX_GUARDS_HPP
-#define ANONX_GUARDS_HPP
+#ifndef SENPAI_GUARDS_HPP
+#define SENPAI_GUARDS_HPP
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "anonx/bot_api.hpp"
-#include "anonx/config.hpp"
-#include "anonx/database.hpp"
-#include "anonx/queue.hpp"
-#include "anonx/youtube.hpp"
+#include "senpai/bot_api.hpp"
+#include "senpai/config.hpp"
+#include "senpai/database.hpp"
+#include "senpai/queue.hpp"
+#include "senpai/youtube.hpp"
 
-namespace anonx {
+namespace senpai {
 namespace guards {
 
 bool isAdmin(BotApi& api, std::int64_t chatId, std::int64_t userId);

@@ -1,5 +1,5 @@
-#ifndef ANONX_LANG_HPP
-#define ANONX_LANG_HPP
+#ifndef SENPAI_LANG_HPP
+#define SENPAI_LANG_HPP
 
 #include <memory>
 #include <string>
@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace anonx {
+namespace senpai {
 
 std::string formatStr(const std::string& tmpl, const std::vector<std::string>& args);
 
