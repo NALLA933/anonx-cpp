@@ -94,26 +94,6 @@ private:
         ntg_on_stream_end = (fn_ntg_on_stream_end)dlsym(handle, "ntg_on_stream_end");
         ntg_on_connection_change = (fn_ntg_on_connection_change)dlsym(handle, "ntg_on_connection_change");
 
-        typedef void (*fn_ntg_register_logger)(ntg_log_message_callback);
-        fn_ntg_register_logger ntg_register_logger =
-            (fn_ntg_register_logger)dlsym(handle, "ntg_register_logger");
-        if (ntg_register_logger) {
-            ntg_register_logger([](ntg_log_message_struct msg) {
-                if (msg.message && (msg.level == NTG_LOG_ERROR || msg.level == NTG_LOG_WARNING)) {
-                    // Ignore benign WebRTC local audio recording initialization warning on headless servers
-                    std::string text = msg.message;
-                    if (text.find("Failed to initialize recording") != std::string::npos) {
-                        return;
-                    }
-                    if (msg.level == NTG_LOG_ERROR) {
-                        log().error(std::string("[NTgCalls] ") + text);
-                    } else {
-                        log().warning(std::string("[NTgCalls] ") + text);
-                    }
-                }
-            });
-        }
-
         if (!ntg_init || !ntg_create || !ntg_connect || !ntg_set_stream_sources) {
             log().error("libntgcalls.so missing required symbol exports");
             dlclose(handle);
@@ -249,8 +229,6 @@ PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) 
                 return PlayResult::ServerError;
             }
             localParams = buffer;
-            log().info("ntg_create generated WebRTC parameters (" +
-                      std::to_string(localParams.size()) + " bytes)");
         } else {
             nlohmann::json dummy;
             dummy["ssrc"] = 1;
@@ -268,8 +246,6 @@ PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) 
 
         if (lib.loaded() && impl_->client != 0) {
             auto connectWait = std::make_shared<AsyncWait>();
-            log().info("connecting NTgCalls WebRTC engine to Telegram server for chat " +
-                       std::to_string(chatId));
             int rc = lib.ntg_connect(impl_->client, chatId,
                                      const_cast<char*>(remoteParams.c_str()), false,
                                      connectWait->makeFuture(connectWait));
@@ -317,7 +293,7 @@ PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) 
                 log().warning("ntg_set_stream_sources failed for chat " + std::to_string(chatId));
                 return PlayResult::ServerError;
             }
-            log().info("NTgCalls audio stream active for chat " + std::to_string(chatId) + "!");
+            log().info("Playing in chat " + std::to_string(chatId));
         }
 
         return PlayResult::Ok;

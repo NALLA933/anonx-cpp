@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "senpai/inline_keyboard.hpp"
@@ -104,6 +105,8 @@ public:
 
     std::string getChatMemberStatus(std::int64_t chatId, std::int64_t userId);
 
+    std::int64_t resolveMessageId(std::int64_t messageId);
+
     TdClient& raw() { return client_; }
 
     void setUpdateObserver(TdClient::UpdateHandler observer);
@@ -126,6 +129,9 @@ private:
     TdClient::UpdateHandler observer_;
 
     std::atomic<bool> closeRequested_{false};
+
+    std::mutex sentMsgMutex_;
+    std::unordered_map<std::int64_t, std::int64_t> sentMsgMap_;
 };
 
 }

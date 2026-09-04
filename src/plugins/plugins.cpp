@@ -77,8 +77,11 @@ std::int64_t Plugins::takeStatus(std::int64_t chatId) {
 std::int64_t Plugins::say(std::int64_t chatId, const std::string& html,
                           const InlineKeyboard& kb) {
     const std::int64_t pending = takeStatus(chatId);
-    if (pending != 0 && api_.editMessageText(chatId, pending, html, kb))
-        return pending;
+    if (pending != 0) {
+        if (api_.editMessageText(chatId, pending, html, kb))
+            return pending;
+        api_.deleteMessage(chatId, pending);
+    }
     return api_.sendMessage(chatId, html, kb);
 }
 
@@ -205,7 +208,7 @@ void Plugins::onPlay(const CommandEvent& ev) {
 
     const std::string mention = api_.userMention(ev.fromUserId);
 
-    setStatus(ev.chatId, api_.sendMessage(ev.chatId, L["play_searching"]));
+    setStatus(ev.chatId, say(ev.chatId, L["play_searching"]));
 
     if (pre.m3u8) {
 

@@ -127,8 +127,6 @@ std::int32_t activeGroupCallId(TelegramClient& client, std::int64_t chatId) {
             const std::int32_t id =
                 static_cast<std::int32_t>(intField(chat[key], "group_call_id"));
             if (id != 0) {
-                log().info("activeGroupCallId: found group_call_id=" +
-                          std::to_string(id) + " for chat " + std::to_string(chatId));
                 return id;
             }
         }
@@ -176,8 +174,6 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
         for (int attempt = 0; attempt < 2; ++attempt) {
             const int tryDialect = attempt == 0 ? dialect : (dialect == 1 ? 2 : 1);
             json req = buildJoinRequest(tryDialect, groupCallId, myId, audioSource, localParams);
-            log().info("joinGroupCall: attempting dialect " + std::to_string(tryDialect) +
-                       " (" + strField(req, "@type") + ") for chat " + std::to_string(chatId));
             reply = json::parse(client->raw().invoke(req.dump(), 30000), nullptr, false);
             if (!reply.is_discarded() && !isError(reply)) {
                 g_dialect.store(tryDialect);
@@ -195,7 +191,6 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
             log().warning("join failed for chat " + std::to_string(chatId) + ": " + msg);
             if (msg.find("ALREADY") != std::string::npos ||
                 msg.find("already") != std::string::npos) {
-                log().info("assistant already in group call for chat " + std::to_string(chatId));
                 state->remember(chatId, groupCallId);
                 return "{}";
             }
@@ -208,8 +203,6 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
         }
 
         state->remember(chatId, groupCallId);
-        log().info("join succeeded: assistant joined group_call_id=" +
-                   std::to_string(groupCallId) + " in chat " + std::to_string(chatId));
 
         const std::string remote = strField(reply, "text");
         return remote.empty() ? "{}" : remote;

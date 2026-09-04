@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <regex>
+#include <thread>
 #include <utility>
 
 #include <sys/stat.h>
@@ -134,10 +136,25 @@ json toReplyMarkup(const InlineKeyboard& kb) {
     return markup;
 }
 
+std::string sanitizeHtml(const std::string& input) {
+    if (input.empty()) return input;
+
+    // 1. Fix unquoted href: <a href=http... -> <a href="http..."
+    static const std::regex hrefRegex(R"(<a\s+([^>]*?)href=([^"'\s>]+)([^>]*?)>)", std::regex::icase);
+    std::string s = std::regex_replace(input, hrefRegex, R"(<a $1href="$2"$3>)");
+
+    // 2. Escape bare ampersands: & not followed by entity (amp|lt|gt|quot|apos|#...)
+    static const std::regex ampRegex(R"(&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);))", std::regex::icase);
+    s = std::regex_replace(s, ampRegex, "&amp;");
+
+    return s;
+}
+
 json parseHtml(const std::string& html) {
+    const std::string clean = sanitizeHtml(html);
     json req;
     req["@type"] = "parseTextEntities";
-    req["text"] = html;
+    req["text"] = clean;
     json mode;
     mode["@type"] = "textParseModeHTML";
     req["parse_mode"] = mode;
@@ -147,9 +164,16 @@ json parseHtml(const std::string& html) {
         strField(formatted, "@type") == "formattedText") {
         return formatted;
     }
+
+    log().warning("parseHtml: parseTextEntities failed for HTML: " + clean +
+                 " (response: " + formatted.dump() + ")");
+
+    // Fallback: strip HTML tags so raw tags like <u><b> never leak into chat
+    static const std::regex tagRegex(R"(<[^>]+>)");
+    std::string stripped = std::regex_replace(clean, tagRegex, "");
     json plain;
     plain["@type"] = "formattedText";
-    plain["text"] = html;
+    plain["text"] = stripped;
     return plain;
 }
 
@@ -157,6 +181,11 @@ json inputMessageText(const std::string& html) {
     json content;
     content["@type"] = "inputMessageText";
     content["text"] = parseHtml(html);
+    content["disable_web_page_preview"] = true;
+    json linkOptions;
+    linkOptions["@type"] = "linkPreviewOptions";
+    linkOptions["is_disabled"] = true;
+    content["link_preview_options"] = linkOptions;
     return content;
 }
 
@@ -328,6 +357,20 @@ void TelegramClient::onUpdate(const std::string& updateJson) {
         } else {
             log().error(opts_.name + " TDLib error: " + msg +
                         " (code " + std::to_string(intField(j, "code")) + ")");
+        }
+    }
+
+    if (type == "updateMessageSendSucceeded") {
+        const std::int64_t oldId = intField(j, "old_message_id");
+        if (j.contains("message") && j["message"].is_object()) {
+            const std::int64_t newId = intField(j["message"], "id");
+            if (oldId != 0 && newId != 0) {
+                std::lock_guard<std::mutex> lk(sentMsgMutex_);
+                sentMsgMap_[oldId] = newId;
+                if (sentMsgMap_.size() > 1000) {
+                    sentMsgMap_.erase(sentMsgMap_.begin());
+                }
+            }
         }
     }
 
@@ -611,33 +654,70 @@ std::int64_t TelegramClient::sendPhoto(std::int64_t chatId, const std::string& p
     return sendMessage(chatId, captionHtml, kb);
 }
 
+std::int64_t TelegramClient::resolveMessageId(std::int64_t messageId) {
+    if (messageId == 0) return 0;
+    std::lock_guard<std::mutex> lk(sentMsgMutex_);
+    auto it = sentMsgMap_.find(messageId);
+    if (it != sentMsgMap_.end()) {
+        return it->second;
+    }
+    return messageId;
+}
+
 bool TelegramClient::editMessageText(std::int64_t chatId, std::int64_t messageId,
                                      const std::string& html, const InlineKeyboard& kb) {
-    json req;
-    req["@type"] = "editMessageText";
-    req["chat_id"] = chatId;
-    req["message_id"] = messageId;
-    req["input_message_content"] = inputMessageText(html);
-    const json markup = toReplyMarkup(kb);
-    if (!markup.is_null()) req["reply_markup"] = markup;
-    const std::string resp = client_.invoke(req.dump());
-    if (isOk(resp)) return true;
+    if (messageId == 0) return false;
 
-    json reqCap;
-    reqCap["@type"] = "editMessageCaption";
-    reqCap["chat_id"] = chatId;
-    reqCap["message_id"] = messageId;
-    reqCap["caption"] = parseHtml(html);
-    if (!markup.is_null()) reqCap["reply_markup"] = markup;
-    return isOk(client_.invoke(reqCap.dump()));
+    const json markup = toReplyMarkup(kb);
+
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        const std::int64_t effectiveId = resolveMessageId(messageId);
+
+        json req;
+        req["@type"] = "editMessageText";
+        req["chat_id"] = chatId;
+        req["message_id"] = effectiveId;
+        req["input_message_content"] = inputMessageText(html);
+        if (!markup.is_null()) req["reply_markup"] = markup;
+        const std::string resp = client_.invoke(req.dump());
+        if (isOk(resp)) return true;
+
+        json reqCap;
+        reqCap["@type"] = "editMessageCaption";
+        reqCap["chat_id"] = chatId;
+        reqCap["message_id"] = effectiveId;
+        reqCap["caption"] = parseHtml(html);
+        if (!markup.is_null()) reqCap["reply_markup"] = markup;
+        const std::string respCap = client_.invoke(reqCap.dump());
+        if (isOk(respCap)) return true;
+
+        json j = json::parse(resp, nullptr, false);
+        const std::string errMsg = strField(j, "message");
+
+        if (errMsg.find("MESSAGE_NOT_MODIFIED") != std::string::npos ||
+            errMsg.find("not modified") != std::string::npos) {
+            return true;
+        }
+
+        if (errMsg.find("being sent") != std::string::npos ||
+            errMsg.find("not found") != std::string::npos ||
+            errMsg.find("can't be edited") != std::string::npos) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(80));
+            continue;
+        }
+
+        break;
+    }
+    return false;
 }
 
 bool TelegramClient::editMessageReplyMarkup(std::int64_t chatId, std::int64_t messageId,
                                             const InlineKeyboard& kb) {
+    const std::int64_t effectiveId = resolveMessageId(messageId);
     json req;
     req["@type"] = "editMessageReplyMarkup";
     req["chat_id"] = chatId;
-    req["message_id"] = messageId;
+    req["message_id"] = effectiveId;
     const json markup = toReplyMarkup(kb);
     if (!markup.is_null()) req["reply_markup"] = markup;
     return isOk(client_.invoke(req.dump()));
@@ -648,7 +728,10 @@ bool TelegramClient::deleteMessages(std::int64_t chatId,
                                     bool revoke) {
     if (messageIds.empty()) return true;
     json ids = json::array();
-    for (std::int64_t id : messageIds) ids.push_back(id);
+    for (std::int64_t id : messageIds) {
+        if (id != 0) ids.push_back(resolveMessageId(id));
+    }
+    if (ids.empty()) return true;
 
     json req;
     req["@type"] = "deleteMessages";
@@ -662,7 +745,7 @@ std::string TelegramClient::getMessageText(std::int64_t chatId, std::int64_t mes
     json req;
     req["@type"] = "getMessage";
     req["chat_id"] = chatId;
-    req["message_id"] = messageId;
+    req["message_id"] = resolveMessageId(messageId);
 
     json j = json::parse(client_.invoke(req.dump()), nullptr, false);
     if (j.is_discarded() || !j.is_object() || strField(j, "@type") != "message") {
@@ -677,7 +760,7 @@ std::int64_t TelegramClient::getMessageSenderId(std::int64_t chatId,
     json req;
     req["@type"] = "getMessage";
     req["chat_id"] = chatId;
-    req["message_id"] = messageId;
+    req["message_id"] = resolveMessageId(messageId);
 
     json j = json::parse(client_.invoke(req.dump()), nullptr, false);
     if (j.is_discarded() || !j.is_object() || strField(j, "@type") != "message") {
@@ -695,7 +778,9 @@ bool TelegramClient::forwardMessages(std::int64_t fromChatId,
                                      std::int64_t toChatId, bool sendCopy) {
     if (messageIds.empty()) return true;
     json ids = json::array();
-    for (std::int64_t id : messageIds) ids.push_back(id);
+    for (std::int64_t id : messageIds) {
+        if (id != 0) ids.push_back(resolveMessageId(id));
+    }
 
     json req;
     req["@type"] = "forwardMessages";
