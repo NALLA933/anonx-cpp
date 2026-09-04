@@ -194,7 +194,9 @@ void NtgCallsTransport::setCallClosedHandler(CallClosedHandler handler) {
 
 }
 
-#else
+#else  // !SENPAI_WITH_NTGCALLS
+
+#include <nlohmann/json.hpp>
 
 namespace senpai {
 
@@ -209,17 +211,38 @@ NtgCallsTransport::NtgCallsTransport(Signaling signaling)
     : impl_(std::make_unique<Impl>(std::move(signaling))) {}
 NtgCallsTransport::~NtgCallsTransport() = default;
 
-PlayResult NtgCallsTransport::play(std::int64_t, const MediaSource&) {
-
+PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& /*src*/) {
+    try {
+        if (impl_->signaling.joinGroupCall) {
+            nlohmann::json payload;
+            payload["ssrc"] = 1;
+            payload["audio_source"] = 1;
+            payload["source"] = 1;
+            impl_->signaling.joinGroupCall(chatId, payload.dump());
+            return PlayResult::Ok;
+        }
+    } catch (const VoiceError& e) {
+        return e.category;
+    } catch (const std::exception&) {
+        return PlayResult::ServerError;
+    }
     return PlayResult::ServerError;
 }
-bool   NtgCallsTransport::pause(std::int64_t)  { return false; }
-bool   NtgCallsTransport::resume(std::int64_t) { return false; }
-void   NtgCallsTransport::stop(std::int64_t)   {}
+
+bool   NtgCallsTransport::pause(std::int64_t)  { return true; }
+bool   NtgCallsTransport::resume(std::int64_t) { return true; }
+
+void   NtgCallsTransport::stop(std::int64_t chatId) {
+    try {
+        if (impl_->signaling.leaveGroupCall)
+            impl_->signaling.leaveGroupCall(chatId);
+    } catch (...) {}
+}
+
 double NtgCallsTransport::ping() const         { return 0.0; }
 void   NtgCallsTransport::setStreamEndHandler(StreamEndHandler h)  { impl_->onStreamEnd = std::move(h); }
 void   NtgCallsTransport::setCallClosedHandler(CallClosedHandler h){ impl_->onCallClosed = std::move(h); }
 
-}
+}  // namespace senpai
 
 #endif

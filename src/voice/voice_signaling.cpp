@@ -83,15 +83,27 @@ std::int32_t activeGroupCallId(TelegramClient& client, std::int64_t chatId) {
     req["@type"] = "getChat";
     req["chat_id"] = chatId;
     json chat = json::parse(client.raw().invoke(req.dump()), nullptr, false);
-    if (chat.is_discarded() || !chat.is_object() || isError(chat)) return 0;
+    if (chat.is_discarded() || !chat.is_object() || isError(chat)) {
+        if (isError(chat)) {
+            log().warning("activeGroupCallId: getChat error for chat " +
+                          std::to_string(chatId) + ": " + strField(chat, "message"));
+        }
+        return 0;
+    }
 
     for (const char* key : {"video_chat", "voice_chat"}) {
         if (chat.contains(key) && chat[key].is_object()) {
             const std::int32_t id =
                 static_cast<std::int32_t>(intField(chat[key], "group_call_id"));
-            if (id != 0) return id;
+            if (id != 0) {
+                log().info("activeGroupCallId: found group_call_id=" +
+                          std::to_string(id) + " for chat " + std::to_string(chatId));
+                return id;
+            }
         }
     }
+    log().warning("activeGroupCallId: no active group_call_id found for chat " +
+                  std::to_string(chatId));
     return 0;
 }
 
@@ -112,10 +124,17 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
                              "no open voice chat in " + std::to_string(chatId));
         }
 
-        json payload = json::parse(localParams, nullptr, false);
+        json payload = localParams.empty()
+                           ? json::object()
+                           : json::parse(localParams, nullptr, false);
         if (payload.is_discarded()) {
             throw VoiceError(PlayResult::ServerError,
                              "voice engine produced unparseable join parameters");
+        }
+
+        std::int64_t myId = client->me().id;
+        if (myId == 0) {
+            myId = client->getMe().id;
         }
 
         json req;
@@ -123,7 +142,7 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
         req["group_call_id"] = groupCallId;
         json participant;
         participant["@type"] = "messageSenderUser";
-        participant["user_id"] = client->me().id;
+        participant["user_id"] = myId;
         req["participant_id"] = participant;
         req["audio_source_id"] = audioSourceId(payload);
         req["payload"] = localParams;
@@ -153,16 +172,24 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
             const std::string msg =
                 reply.is_discarded() ? "unparseable reply" : strField(reply, "message");
             log().warning("join failed for chat " + std::to_string(chatId) + ": " + msg);
+            if (msg.find("ALREADY") != std::string::npos ||
+                msg.find("already") != std::string::npos) {
+                log().info("assistant already in group call for chat " + std::to_string(chatId));
+                state->remember(chatId, groupCallId);
+                return "{}";
+            }
+            if (msg.find("GROUPCALL_INVALID") != std::string::npos ||
+                msg.find("not found") != std::string::npos ||
+                msg.find("not active") != std::string::npos) {
+                throw VoiceError(PlayResult::NoActiveGroupCall, "join rejected: " + msg);
+            }
             throw VoiceError(PlayResult::ServerError, "join rejected: " + msg);
         }
 
         state->remember(chatId, groupCallId);
 
         const std::string remote = strField(reply, "text");
-        if (remote.empty()) {
-            throw VoiceError(PlayResult::ServerError, "join returned no parameters");
-        }
-        return remote;
+        return remote.empty() ? "{}" : remote;
     };
 
     sig.leaveGroupCall = [client, state](std::int64_t chatId) {

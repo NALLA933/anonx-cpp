@@ -59,10 +59,11 @@ target_compile_options(senpai_core PRIVATE -Wall -Wextra)
 # Voice component
 add_library(senpai_voice
   src/voice/call_manager.cpp
+  src/voice/ntgcalls_transport.cpp
 )
 target_include_directories(senpai_voice
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(senpai_voice PUBLIC Threads::Threads senpai_utils)
+target_link_libraries(senpai_voice PUBLIC Threads::Threads senpai_utils PRIVATE nlohmann_json::nlohmann_json)
 target_compile_options(senpai_voice PRIVATE -Wall -Wextra)
 
 option(SENPAI_WITH_NTGCALLS "Build the real NTgCalls voice transport" OFF)

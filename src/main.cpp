@@ -20,11 +20,8 @@
 #include "senpai/runtime.hpp"
 #include "senpai/userbot.hpp"
 
-#if defined(SENPAI_WITH_NTGCALLS)
 #include "senpai/voice_signaling.hpp"
-#else
-#include "senpai/null_voice_transport.hpp"
-#endif
+#include "senpai/ntgcalls_transport.hpp"
 #endif
 
 namespace {
@@ -62,8 +59,6 @@ int runBot(const std::string& envFile) {
 
     std::unique_ptr<senpai::Runtime> runtime;
 
-#if defined(SENPAI_WITH_NTGCALLS)
-
     senpai::NtgCallsTransport transport(senpai::makeDeferredAssistantSignaling(
         [&runtime]() -> senpai::TelegramClient* {
             if (!runtime) return nullptr;
@@ -73,11 +68,6 @@ int runBot(const std::string& envFile) {
             }
             return nullptr;
         }));
-#else
-    senpai::NullVoiceTransport transport;
-    log.warning("built without NTgCalls (-DSENPAI_WITH_NTGCALLS=ON) — every "
-                "command works, but streaming will report a server error");
-#endif
 
     runtime = std::make_unique<senpai::Runtime>(config, transport);
     if (!runtime->start()) {
