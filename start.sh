@@ -35,7 +35,7 @@ log_error() {
 
 log_info "Checking system dependencies..."
 
-REQUIRED_PACKAGES=(cmake g++ make ffmpeg libsqlite3-dev nlohmann-json3-dev libssl-dev)
+REQUIRED_PACKAGES=(cmake g++ make ffmpeg libsqlite3-dev nlohmann-json3-dev libssl-dev unzip libasound2 libpulse0)
 MISSING_PACKAGES=()
 
 if command -v dpkg-query >/dev/null 2>&1; then
@@ -100,6 +100,39 @@ if [ "$TDLIB_FOUND" = false ]; then
     else
         log_error "Failed to download TDLib binary. Please check internet connection."
         exit 1
+    fi
+fi
+
+log_info "Checking NTgCalls voice library (libntgcalls.so)..."
+NTGCALLS_FOUND=false
+for dir in "/usr/local/lib" "/usr/lib" "/usr/lib/x86_64-linux-gnu" "$PWD/lib"; do
+    if [ -f "$dir/libntgcalls.so" ]; then
+        NTGCALLS_FOUND=true
+        log_success "NTgCalls library found in $dir/libntgcalls.so"
+        break
+    fi
+done
+
+if [ "$NTGCALLS_FOUND" = false ]; then
+    log_info "libntgcalls.so not found. Downloading official prebuilt NTgCalls for Linux x86_64..."
+    mkdir -p lib include /tmp/ntgcalls_extracted
+    NTGCALLS_TMP="/tmp/ntgcalls_prebuilt.zip"
+    if curl -sSL -f "https://github.com/pytgcalls/ntgcalls/releases/download/v2.2.5/ntgcalls.linux-x86_64-shared_libs.zip" -o "$NTGCALLS_TMP"; then
+        unzip -q -o "$NTGCALLS_TMP" -d /tmp/ntgcalls_extracted
+        cp /tmp/ntgcalls_extracted/lib/libntgcalls.so lib/
+        cp /tmp/ntgcalls_extracted/include/ntgcalls.h include/
+        rm -rf "$NTGCALLS_TMP" /tmp/ntgcalls_extracted
+
+        if [ "$(id -u)" -eq 0 ]; then
+            cp lib/libntgcalls.so /usr/local/lib/
+            ldconfig 2>/dev/null || true
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo cp lib/libntgcalls.so /usr/local/lib/ 2>/dev/null || true
+            sudo ldconfig 2>/dev/null || true
+        fi
+        log_success "NTgCalls voice streaming library installed successfully."
+    else
+        log_warn "Failed to download prebuilt NTgCalls library. Voice chat streaming may operate in signaling mode."
     fi
 fi
 

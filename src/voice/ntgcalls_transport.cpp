@@ -1,34 +1,23 @@
 #include "senpai/ntgcalls_transport.hpp"
 
+#include <chrono>
+#include <future>
 #include <mutex>
 #include <string>
+#include <vector>
 
-#if defined(SENPAI_WITH_NTGCALLS)
+#if !defined(_WIN32)
+#include <dlfcn.h>
+#endif
 
-#include <ntgcalls/ntgcalls.hpp>
+#include <nlohmann/json.hpp>
+#include "ntgcalls.h"
+#include "senpai/logger.hpp"
 
 namespace senpai {
 namespace {
 
-void audioParamsFor(AudioQuality q, int& sampleRate, int& bits, int& channels) {
-    bits     = 16;
-    channels = 2;
-    switch (q) {
-        case AudioQuality::Low:    sampleRate = 24000; break;
-        case AudioQuality::Medium: sampleRate = 36000; break;
-        case AudioQuality::High:   sampleRate = 48000; break;
-    }
-}
-
-void videoParamsFor(VideoQuality q, int& w, int& h, int& fps) {
-    fps = 30;
-    switch (q) {
-        case VideoQuality::SD_360p:   w = 640;  h = 360;  break;
-        case VideoQuality::SD_480p:   w = 854;  h = 480;  break;
-        case VideoQuality::HD_720p:   w = 1280; h = 720;  break;
-        case VideoQuality::FHD_1080p: w = 1920; h = 1080; break;
-    }
-}
+Logger log() { return Logger("senpai.voice.ntgcalls"); }
 
 std::string shellEscape(const std::string& s) {
     std::string r = "'";
@@ -40,81 +29,160 @@ std::string shellEscape(const std::string& s) {
     return r;
 }
 
-ntgcalls::MediaDescription buildMedia(const MediaSource& s) {
-    const std::string seek =
-        s.seekSeconds > 1 ? ("-ss " + std::to_string(s.seekSeconds) + " ") : "";
+typedef uintptr_t (*fn_ntg_init)();
+typedef int (*fn_ntg_destroy)(uintptr_t);
+typedef int (*fn_ntg_create)(uintptr_t, int64_t, char**, ntg_async_struct);
+typedef int (*fn_ntg_connect)(uintptr_t, int64_t, char*, bool, ntg_async_struct);
+typedef int (*fn_ntg_set_stream_sources)(uintptr_t, int64_t, ntg_stream_mode_enum, ntg_media_description_struct, ntg_async_struct);
+typedef int (*fn_ntg_pause)(uintptr_t, int64_t, ntg_async_struct);
+typedef int (*fn_ntg_resume)(uintptr_t, int64_t, ntg_async_struct);
+typedef int (*fn_ntg_stop)(uintptr_t, int64_t, ntg_async_struct);
+typedef int (*fn_ntg_on_stream_end)(uintptr_t, ntg_stream_callback, void*);
+typedef int (*fn_ntg_on_connection_change)(uintptr_t, ntg_connection_callback, void*);
 
-    ntgcalls::MediaDescription desc;
+struct NtgLibrary {
+    void* handle = nullptr;
+    fn_ntg_init ntg_init = nullptr;
+    fn_ntg_destroy ntg_destroy = nullptr;
+    fn_ntg_create ntg_create = nullptr;
+    fn_ntg_connect ntg_connect = nullptr;
+    fn_ntg_set_stream_sources ntg_set_stream_sources = nullptr;
+    fn_ntg_pause ntg_pause = nullptr;
+    fn_ntg_resume ntg_resume = nullptr;
+    fn_ntg_stop ntg_stop = nullptr;
+    fn_ntg_on_stream_end ntg_on_stream_end = nullptr;
+    fn_ntg_on_connection_change ntg_on_connection_change = nullptr;
 
-    int aRate, aBits, aChans;
-    audioParamsFor(s.audio, aRate, aBits, aChans);
-    ntgcalls::AudioDescription audio;
-    audio.mediaSource   = ntgcalls::BaseMediaDescription::MediaSource::Shell;
-    audio.sampleRate    = static_cast<uint32_t>(aRate);
-    audio.bitsPerSample = static_cast<uint8_t>(aBits);
-    audio.channelCount  = static_cast<uint8_t>(aChans);
-    audio.input = "ffmpeg -nostdin " + seek + "-i " + shellEscape(s.path) +
-                  " -f s16le -ac " + std::to_string(aChans) +
-                  " -ar " + std::to_string(aRate) + " -loglevel quiet pipe:1";
-    desc.audio = audio;
+    bool loaded() const { return handle != nullptr && ntg_init != nullptr; }
 
-    if (s.video) {
-        int vw, vh, vfps;
-        videoParamsFor(s.videoQuality, vw, vh, vfps);
-        ntgcalls::VideoDescription video;
-        video.mediaSource = ntgcalls::BaseMediaDescription::MediaSource::Shell;
-        video.width       = static_cast<uint16_t>(vw);
-        video.height      = static_cast<uint16_t>(vh);
-        video.fps         = static_cast<uint8_t>(vfps);
-        video.input = "ffmpeg -nostdin " + seek + "-i " + shellEscape(s.path) +
-                      " -f rawvideo -pix_fmt yuv420p -vf scale=" +
-                      std::to_string(vw) + ":" + std::to_string(vh) +
-                      " -r " + std::to_string(vfps) + " -loglevel quiet pipe:1";
-        desc.video = video;
+    static NtgLibrary& instance() {
+        static NtgLibrary lib;
+        return lib;
     }
-    return desc;
-}
 
-}
+private:
+    NtgLibrary() {
+#if !defined(_WIN32)
+        const char* paths[] = {
+            "libntgcalls.so",
+            "./lib/libntgcalls.so",
+            "/usr/local/lib/libntgcalls.so",
+            "/usr/lib/libntgcalls.so",
+            "/usr/lib/x86_64-linux-gnu/libntgcalls.so",
+            nullptr
+        };
+        for (int i = 0; paths[i] != nullptr; ++i) {
+            handle = dlopen(paths[i], RTLD_NOW | RTLD_GLOBAL);
+            if (handle) {
+                log().info(std::string("loaded NTgCalls library from: ") + paths[i]);
+                break;
+            }
+        }
+        if (!handle) {
+            log().warning("libntgcalls.so not found — streaming will run in signaling-only mode");
+            return;
+        }
+
+        ntg_init = (fn_ntg_init)dlsym(handle, "ntg_init");
+        ntg_destroy = (fn_ntg_destroy)dlsym(handle, "ntg_destroy");
+        ntg_create = (fn_ntg_create)dlsym(handle, "ntg_create");
+        ntg_connect = (fn_ntg_connect)dlsym(handle, "ntg_connect");
+        ntg_set_stream_sources = (fn_ntg_set_stream_sources)dlsym(handle, "ntg_set_stream_sources");
+        ntg_pause = (fn_ntg_pause)dlsym(handle, "ntg_pause");
+        ntg_resume = (fn_ntg_resume)dlsym(handle, "ntg_resume");
+        ntg_stop = (fn_ntg_stop)dlsym(handle, "ntg_stop");
+        ntg_on_stream_end = (fn_ntg_on_stream_end)dlsym(handle, "ntg_on_stream_end");
+        ntg_on_connection_change = (fn_ntg_on_connection_change)dlsym(handle, "ntg_on_connection_change");
+
+        if (!ntg_init || !ntg_create || !ntg_connect || !ntg_set_stream_sources) {
+            log().error("libntgcalls.so missing required symbol exports");
+            dlclose(handle);
+            handle = nullptr;
+        }
+#endif
+    }
+};
+
+struct AsyncWait {
+    std::promise<void> prom;
+    int errCode = 0;
+    char* errMsg = nullptr;
+
+    static void callback(void* user) {
+        auto* self = static_cast<AsyncWait*>(user);
+        self->prom.set_value();
+    }
+
+    ntg_async_struct makeFuture() {
+        ntg_async_struct s;
+        s.userData = this;
+        s.errorCode = &errCode;
+        s.errorMessage = &errMsg;
+        s.promise = &callback;
+        return s;
+    }
+
+    bool wait(int timeoutSec = 15) {
+        auto fut = prom.get_future();
+        if (fut.wait_for(std::chrono::seconds(timeoutSec)) == std::future_status::timeout) {
+            return false;
+        }
+        if (errCode != 0) {
+            std::string msg = errMsg ? errMsg : ("ntgcalls error code " + std::to_string(errCode));
+            throw std::runtime_error(msg);
+        }
+        return true;
+    }
+};
+
+} // namespace
 
 struct NtgCallsTransport::Impl {
     explicit Impl(Signaling sig) : signaling(std::move(sig)) {
-
-        instance.onStreamEnd(
-            [this](std::int64_t chatId, ntgcalls::StreamManager::Type type) {
-                StreamKind kind = (type == ntgcalls::StreamManager::Type::Playback)
-                                      ? StreamKind::Audio
-                                      : StreamKind::Video;
-                StreamEndHandler h;
-                {
-                    std::lock_guard<std::mutex> lk(mtx);
-                    h = onStreamEnd;
-                }
-                if (h && kind == StreamKind::Audio)
-                    h(chatId, kind);
-            });
-
-        instance.onConnectionChange(
-            [this](std::int64_t chatId, ntgcalls::NetworkInfo state) {
-                if (state.state == ntgcalls::ConnectionState::Closed ||
-                    state.state == ntgcalls::ConnectionState::Failed ||
-                    state.state == ntgcalls::ConnectionState::Timeout) {
-                    CallClosedHandler h;
-                    {
-                        std::lock_guard<std::mutex> lk(mtx);
-                        h = onCallClosed;
-                    }
-                    if (h)
-                        h(chatId);
-                }
-            });
+        auto& lib = NtgLibrary::instance();
+        if (lib.loaded()) {
+            client = lib.ntg_init();
+            if (lib.ntg_on_stream_end) {
+                lib.ntg_on_stream_end(client, &onStreamEndStatic, this);
+            }
+            if (lib.ntg_on_connection_change) {
+                lib.ntg_on_connection_change(client, &onConnectionChangeStatic, this);
+            }
+        }
     }
 
-    ntgcalls::NTgCalls              instance;
-    Signaling                       signaling;
-    mutable std::mutex              mtx;
-    StreamEndHandler                onStreamEnd;
-    CallClosedHandler               onCallClosed;
+    ~Impl() {
+        auto& lib = NtgLibrary::instance();
+        if (lib.loaded() && client != 0 && lib.ntg_destroy) {
+            lib.ntg_destroy(client);
+            client = 0;
+        }
+    }
+
+    static void onStreamEndStatic(uintptr_t, int64_t chatId, ntg_stream_type_enum type,
+                                  ntg_stream_device_enum, void* userData) {
+        auto* self = static_cast<Impl*>(userData);
+        if (self && self->onStreamEnd && type == NTG_STREAM_AUDIO) {
+            self->onStreamEnd(chatId, StreamKind::Audio);
+        }
+    }
+
+    static void onConnectionChangeStatic(uintptr_t, int64_t chatId,
+                                         ntg_network_info_struct info, void* userData) {
+        auto* self = static_cast<Impl*>(userData);
+        if (self && self->onCallClosed) {
+            if (info.state == NTG_STATE_CLOSED || info.state == NTG_STATE_FAILED ||
+                info.state == NTG_STATE_TIMEOUT) {
+                self->onCallClosed(chatId);
+            }
+        }
+    }
+
+    uintptr_t client = 0;
+    Signaling signaling;
+    mutable std::mutex mtx;
+    StreamEndHandler onStreamEnd;
+    CallClosedHandler onCallClosed;
 };
 
 NtgCallsTransport::NtgCallsTransport(Signaling signaling)
@@ -123,64 +191,141 @@ NtgCallsTransport::NtgCallsTransport(Signaling signaling)
 NtgCallsTransport::~NtgCallsTransport() = default;
 
 PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& src) {
+    auto& lib = NtgLibrary::instance();
+
     try {
-        auto media = buildMedia(src);
+        std::string localParams;
 
-        const std::string localParams = impl_->instance.createCall(chatId, std::move(media));
+        if (lib.loaded() && impl_->client != 0) {
+            char* buffer = nullptr;
+            AsyncWait createWait;
+            int rc = lib.ntg_create(impl_->client, chatId, &buffer, createWait.makeFuture());
+            if (rc != 0 || !createWait.wait(15) || !buffer) {
+                log().warning("ntg_create failed for chat " + std::to_string(chatId));
+                return PlayResult::ServerError;
+            }
+            localParams = buffer;
+            log().info("ntg_create generated WebRTC parameters (" +
+                      std::to_string(localParams.size()) + " bytes)");
+        } else {
+            nlohmann::json dummy;
+            dummy["ssrc"] = 1;
+            dummy["audio_source"] = 1;
+            dummy["source"] = 1;
+            localParams = dummy.dump();
+        }
 
-        const std::string remoteParams =
-            impl_->signaling.joinGroupCall
-                ? impl_->signaling.joinGroupCall(chatId, localParams)
-                : throw VoiceError(PlayResult::ServerError, "no join signaling wired");
+        std::string remoteParams;
+        if (impl_->signaling.joinGroupCall) {
+            remoteParams = impl_->signaling.joinGroupCall(chatId, localParams);
+        } else {
+            return PlayResult::ServerError;
+        }
 
-        impl_->instance.connect(chatId, remoteParams);
+        if (lib.loaded() && impl_->client != 0) {
+            AsyncWait connectWait;
+            log().info("connecting NTgCalls WebRTC engine to Telegram server for chat " +
+                       std::to_string(chatId));
+            int rc = lib.ntg_connect(impl_->client, chatId,
+                                     const_cast<char*>(remoteParams.c_str()), false,
+                                     connectWait.makeFuture());
+            if (rc != 0 || !connectWait.wait(15)) {
+                log().warning("ntg_connect failed for chat " + std::to_string(chatId));
+                return PlayResult::ServerError;
+            }
+
+            const std::string seek =
+                src.seekSeconds > 1 ? ("-ss " + std::to_string(src.seekSeconds) + " ") : "";
+            std::string ffmpegCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
+                                    " -f s16le -ac 2 -ar 48000 -loglevel quiet pipe:1";
+
+            ntg_audio_description_struct audioDesc = {};
+            audioDesc.mediaSource = NTG_SHELL;
+            audioDesc.input = const_cast<char*>(ffmpegCmd.c_str());
+            audioDesc.sampleRate = 48000;
+            audioDesc.channelCount = 2;
+            audioDesc.keepOpen = false;
+
+            ntg_media_description_struct mediaDesc = {};
+            mediaDesc.microphone = &audioDesc;
+
+            ntg_video_description_struct videoDesc = {};
+            std::string videoCmd;
+            if (src.video) {
+                videoCmd = "ffmpeg -nostdin " + seek + "-i " + shellEscape(src.path) +
+                           " -f rawvideo -pix_fmt yuv420p -vf scale=1280:720 -r 30 -loglevel quiet pipe:1";
+                videoDesc.mediaSource = NTG_SHELL;
+                videoDesc.input = const_cast<char*>(videoCmd.c_str());
+                videoDesc.width = 1280;
+                videoDesc.height = 720;
+                videoDesc.fps = 30;
+                videoDesc.keepOpen = false;
+                mediaDesc.camera = &videoDesc;
+            }
+
+            AsyncWait streamWait;
+            rc = lib.ntg_set_stream_sources(impl_->client, chatId, NTG_STREAM_PLAYBACK,
+                                            mediaDesc, streamWait.makeFuture());
+            if (rc != 0 || !streamWait.wait(15)) {
+                log().warning("ntg_set_stream_sources failed for chat " + std::to_string(chatId));
+                return PlayResult::ServerError;
+            }
+            log().info("NTgCalls audio stream active for chat " + std::to_string(chatId) + "!");
+        }
+
         return PlayResult::Ok;
-    }
-
-    catch (const VoiceError& e) {
+    } catch (const VoiceError& e) {
         return e.category;
+    } catch (const std::exception& ex) {
+        log().warning(std::string("play error: ") + ex.what());
+        return PlayResult::ServerError;
     }
-
-    catch (const ntgcalls::RTMPNeeded&)         { return PlayResult::RtmpUnsupported; }
-    catch (const ntgcalls::FileError&)          { return PlayResult::FileNotFound; }
-    catch (const ntgcalls::TelegramServerError&){ return PlayResult::ServerError; }
-    catch (const ntgcalls::ConnectionError&)    { return PlayResult::ServerError; }
-    catch (const std::exception&)               { return PlayResult::ServerError; }
 }
 
 bool NtgCallsTransport::pause(std::int64_t chatId) {
-    try {
-        return impl_->instance.pause(chatId);
-    } catch (const std::exception&) {
-        return false;
+    auto& lib = NtgLibrary::instance();
+    if (lib.loaded() && impl_->client != 0 && lib.ntg_pause) {
+        try {
+            AsyncWait wait;
+            lib.ntg_pause(impl_->client, chatId, wait.makeFuture());
+            return wait.wait(5);
+        } catch (...) {
+            return false;
+        }
     }
+    return true;
 }
 
 bool NtgCallsTransport::resume(std::int64_t chatId) {
-    try {
-        return impl_->instance.resume(chatId);
-    } catch (const std::exception&) {
-        return false;
+    auto& lib = NtgLibrary::instance();
+    if (lib.loaded() && impl_->client != 0 && lib.ntg_resume) {
+        try {
+            AsyncWait wait;
+            lib.ntg_resume(impl_->client, chatId, wait.makeFuture());
+            return wait.wait(5);
+        } catch (...) {
+            return false;
+        }
     }
+    return true;
 }
 
 void NtgCallsTransport::stop(std::int64_t chatId) {
-
+    auto& lib = NtgLibrary::instance();
+    if (lib.loaded() && impl_->client != 0 && lib.ntg_stop) {
+        try {
+            AsyncWait wait;
+            lib.ntg_stop(impl_->client, chatId, wait.makeFuture());
+            wait.wait(5);
+        } catch (...) {}
+    }
     try {
         if (impl_->signaling.leaveGroupCall)
             impl_->signaling.leaveGroupCall(chatId);
-    } catch (const std::exception&) {
-    }
-    try {
-        impl_->instance.stop(chatId);
-    } catch (const std::exception&) {
-    }
+    } catch (...) {}
 }
 
-double NtgCallsTransport::ping() const {
-
-    return 0.0;
-}
+double NtgCallsTransport::ping() const { return 0.0; }
 
 void NtgCallsTransport::setStreamEndHandler(StreamEndHandler handler) {
     std::lock_guard<std::mutex> lk(impl_->mtx);
@@ -192,57 +337,4 @@ void NtgCallsTransport::setCallClosedHandler(CallClosedHandler handler) {
     impl_->onCallClosed = std::move(handler);
 }
 
-}
-
-#else  // !SENPAI_WITH_NTGCALLS
-
-#include <nlohmann/json.hpp>
-
-namespace senpai {
-
-struct NtgCallsTransport::Impl {
-    explicit Impl(Signaling sig) : signaling(std::move(sig)) {}
-    Signaling         signaling;
-    StreamEndHandler  onStreamEnd;
-    CallClosedHandler onCallClosed;
-};
-
-NtgCallsTransport::NtgCallsTransport(Signaling signaling)
-    : impl_(std::make_unique<Impl>(std::move(signaling))) {}
-NtgCallsTransport::~NtgCallsTransport() = default;
-
-PlayResult NtgCallsTransport::play(std::int64_t chatId, const MediaSource& /*src*/) {
-    try {
-        if (impl_->signaling.joinGroupCall) {
-            nlohmann::json payload;
-            payload["ssrc"] = 1;
-            payload["audio_source"] = 1;
-            payload["source"] = 1;
-            impl_->signaling.joinGroupCall(chatId, payload.dump());
-            return PlayResult::Ok;
-        }
-    } catch (const VoiceError& e) {
-        return e.category;
-    } catch (const std::exception&) {
-        return PlayResult::ServerError;
-    }
-    return PlayResult::ServerError;
-}
-
-bool   NtgCallsTransport::pause(std::int64_t)  { return true; }
-bool   NtgCallsTransport::resume(std::int64_t) { return true; }
-
-void   NtgCallsTransport::stop(std::int64_t chatId) {
-    try {
-        if (impl_->signaling.leaveGroupCall)
-            impl_->signaling.leaveGroupCall(chatId);
-    } catch (...) {}
-}
-
-double NtgCallsTransport::ping() const         { return 0.0; }
-void   NtgCallsTransport::setStreamEndHandler(StreamEndHandler h)  { impl_->onStreamEnd = std::move(h); }
-void   NtgCallsTransport::setCallClosedHandler(CallClosedHandler h){ impl_->onCallClosed = std::move(h); }
-
-}  // namespace senpai
-
-#endif
+} // namespace senpai

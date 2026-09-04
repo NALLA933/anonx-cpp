@@ -63,7 +63,7 @@ add_library(senpai_voice
 )
 target_include_directories(senpai_voice
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(senpai_voice PUBLIC Threads::Threads senpai_utils PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(senpai_voice PUBLIC Threads::Threads senpai_utils ${CMAKE_DL_LIBS} PRIVATE nlohmann_json::nlohmann_json)
 target_compile_options(senpai_voice PRIVATE -Wall -Wextra)
 
 option(SENPAI_WITH_NTGCALLS "Build the real NTgCalls voice transport" OFF)
