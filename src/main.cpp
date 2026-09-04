@@ -1,13 +1,15 @@
 #include <anonx/core/config.hpp>
 #include <anonx/core/logger.hpp>
+#include <anonx/audio/ntgcalls_client.hpp>
 #include <anonx/database/mongo_client.hpp>
 #include <anonx/telegram/dispatcher.hpp>
-#include <anonx/telegram/session_manager.hpp>
+#include <anonx/telegram/tdlib_client.hpp>
 #include <atomic>
 #include <chrono>
 #include <csignal>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <thread>
 
 namespace {
@@ -80,13 +82,25 @@ int main(int argc, char** argv) {
     ANONX_LOG_INFO("Main", "Initializing MongoDB connection pool...");
     anonx::database::MongoClient::instance().connect(config.mongo_uri, config.db_name);
 
-    // 6. Start Telegram Session Manager & Dispatcher
-    ANONX_LOG_INFO("Main", "Launching TDLib sessions...");
-    auto& session_mgr = anonx::telegram::SessionManager::instance();
-    session_mgr.start(config);
+    // 6. Initialize Audio Bridge & Launch TDLib Client
+    ANONX_LOG_INFO("Main", "Initializing WebRTC audio bridge...");
+    anonx::audio::NTgCallsClient::instance().init();
+
+    ANONX_LOG_INFO("Main", "Launching TDLib bot client...");
+    auto bot_client = std::make_shared<anonx::telegram::TDLibClient>("bot", true);
+    if (!bot_client->start(config.api_id, config.api_hash, config.bot_token, config.data_dir)) {
+        ANONX_LOG_ERROR("Main", "Failed to start primary TDLib bot client.");
+    }
+
+    std::shared_ptr<anonx::telegram::TDLibClient> assistant_client = nullptr;
+    if (!config.string_session.empty()) {
+        ANONX_LOG_INFO("Main", "Assistant string session detected; launching userbot...");
+        assistant_client = std::make_shared<anonx::telegram::TDLibClient>("assistant", false);
+        assistant_client->start(config.api_id, config.api_hash, config.string_session, config.data_dir);
+    }
 
     auto& dispatcher = anonx::telegram::CommandDispatcher::instance();
-    dispatcher.init(config, session_mgr.bot_client());
+    dispatcher.init(config, bot_client);
 
     ANONX_LOG_INFO("Main", "AnonX-CPP Bot is now LIVE and listening for commands.");
 
@@ -97,7 +111,13 @@ int main(int argc, char** argv) {
 
     // 8. Graceful Teardown
     ANONX_LOG_INFO("Main", "Shutting down AnonX-CPP subsystems...");
-    session_mgr.stop();
+    if (bot_client) {
+        bot_client->stop();
+    }
+    if (assistant_client) {
+        assistant_client->stop();
+    }
+    anonx::audio::NTgCallsClient::instance().shutdown();
     anonx::database::MongoClient::instance().disconnect();
 
     ANONX_LOG_INFO("Main", "All subsystems halted cleanly. Exiting.");

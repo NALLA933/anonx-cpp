@@ -58,17 +58,6 @@ endif()
 find_package(mongocxx CONFIG QUIET)
 find_package(bsoncxx CONFIG QUIET)
 
-# FFmpeg LibAV via PkgConfig
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(LIBAV QUIET IMPORTED_TARGET
-        libavformat
-        libavcodec
-        libavutil
-        libswresample
-    )
-endif()
-
 # TDLib (libtdjson) Discovery
 find_package(Td QUIET)
 if(NOT TARGET Td::TdJson)
@@ -99,7 +88,6 @@ find_package(ntgcalls QUIET)
 add_library(anonx_core STATIC
     src/core/config.cpp
     src/core/logger.cpp
-    src/core/thread_pool.cpp
 )
 add_library(anonx::core ALIAS anonx_core)
 target_include_directories(anonx_core PUBLIC
@@ -148,7 +136,6 @@ target_include_directories(anonx_audio PUBLIC
 )
 target_link_libraries(anonx_audio PUBLIC
     anonx::core
-    $<$<TARGET_EXISTS:PkgConfig::LIBAV>:PkgConfig::LIBAV>
     $<$<TARGET_EXISTS:OpenSSL::SSL>:OpenSSL::SSL>
     $<$<TARGET_EXISTS:OpenSSL::Crypto>:OpenSSL::Crypto>
     $<$<TARGET_EXISTS:ntgcalls>:ntgcalls>
@@ -162,7 +149,6 @@ set_project_warnings(anonx_audio)
 add_library(anonx_telegram STATIC
     src/telegram/tdlib_client.cpp
     src/telegram/dispatcher.cpp
-    src/telegram/session_manager.cpp
 )
 add_library(anonx::telegram ALIAS anonx_telegram)
 target_include_directories(anonx_telegram PUBLIC

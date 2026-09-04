@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <sstream>
+#include <string_view>
 
 namespace anonx::core {
 
@@ -19,14 +19,19 @@ std::optional<std::string> get_env_var(const char* name) {
 
 } // namespace
 
-std::vector<std::string> ConfigLoader::split_string(const std::string& s, char delimiter) {
+std::vector<std::string> ConfigLoader::split_string(std::string_view s, char delimiter) {
     std::vector<std::string> tokens;
-    std::string token;
-    std::istringstream token_stream(s);
-    while (std::getline(token_stream, token, delimiter)) {
-        if (!token.empty()) {
-            tokens.push_back(token);
+    size_t start = 0;
+    while (start < s.size()) {
+        size_t end = s.find(delimiter, start);
+        if (end == std::string_view::npos) {
+            end = s.size();
         }
+        std::string_view token = s.substr(start, end - start);
+        if (!token.empty()) {
+            tokens.emplace_back(token);
+        }
+        start = end + 1;
     }
     return tokens;
 }
@@ -112,30 +117,6 @@ void ConfigLoader::apply_env_overrides(BotConfig& config) {
     if (auto val = get_env_var("AUDIO_QUALITY")) config.audio_quality = *val;
     if (auto val = get_env_var("AUTO_UPDATE_YTDLP")) {
         config.auto_update_ytdlp = (*val == "1" || *val == "true" || *val == "TRUE");
-    }
-}
-
-void ConfigLoader::save(const BotConfig& config, const std::string& config_path) {
-    nlohmann::json j;
-    j["bot_token"] = config.bot_token;
-    j["api_id"] = config.api_id;
-    j["api_hash"] = config.api_hash;
-    j["string_session"] = config.string_session;
-    j["owner_id"] = config.owner_id;
-    j["sudo_users"] = std::vector<int64_t>(config.sudo_users.begin(), config.sudo_users.end());
-    j["mongo_uri"] = config.mongo_uri;
-    j["db_name"] = config.db_name;
-    j["log_group_id"] = config.log_group_id;
-    j["audio_quality"] = config.audio_quality;
-    j["duration_limit_sec"] = config.duration_limit_sec;
-    j["log_level"] = config.log_level;
-    j["data_dir"] = config.data_dir;
-    j["downloads_dir"] = config.downloads_dir;
-    j["auto_update_ytdlp"] = config.auto_update_ytdlp;
-
-    std::ofstream file(config_path);
-    if (file.is_open()) {
-        file << j.dump(4);
     }
 }
 

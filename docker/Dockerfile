@@ -20,10 +20,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     zlib1g-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    libavutil-dev \
-    libswresample-dev \
     libopus-dev \
     && rm -rf /var/lib/apt/lists/*
 

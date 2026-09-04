@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unordered_set>
 #include <optional>
@@ -50,11 +51,10 @@ struct BotConfig {
 class ConfigLoader {
 public:
     static BotConfig load(const std::string& config_path = "config.json");
-    static void save(const BotConfig& config, const std::string& config_path = "config.json");
 
 private:
     static void apply_env_overrides(BotConfig& config);
-    static std::vector<std::string> split_string(const std::string& s, char delimiter);
+    static std::vector<std::string> split_string(std::string_view s, char delimiter);
 };
 
 } // namespace anonx::core

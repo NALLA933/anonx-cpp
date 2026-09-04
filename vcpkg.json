@@ -11,18 +11,7 @@
     "nlohmann-json",
     "openssl",
     "zlib",
-    "mongo-cxx-driver",
-    {
-      "name": "ffmpeg",
-      "default-features": false,
-      "features": [
-        "avcodec",
-        "avformat",
-        "avutil",
-        "swresample",
-        "opus"
-      ]
-    }
+    "mongo-cxx-driver"
   ],
   "builtin-baseline": "5047b4756543b59df9ceb10c55d0a6aa332612bb"
 }

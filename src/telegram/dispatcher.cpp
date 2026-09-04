@@ -1,7 +1,7 @@
 #include <anonx/telegram/dispatcher.hpp>
 #include <anonx/audio/audio_streamer.hpp>
+#include <anonx/audio/ntgcalls_client.hpp>
 #include <anonx/database/mongo_client.hpp>
-#include <anonx/telegram/session_manager.hpp>
 #include <anonx/core/logger.hpp>
 #include <chrono>
 #include <sstream>
@@ -133,8 +133,13 @@ void CommandDispatcher::handle_play(int64_t chat_id, int64_t user_id, int64_t ms
     auto current_state = audio::AudioStreamer::instance().get_state(chat_id);
 
     if (current_state == audio::PlayerState::Idle) {
-        // Ensure bot/assistant is connected to voice chat
-        SessionManager::instance().join_voice_chat(chat_id);
+        // Directly invoke WebRTC group call bridge on NTgCallsClient
+        nlohmann::json transport_desc = {
+            {"chat_id", chat_id},
+            {"mode", "rtc"},
+            {"codec", "opus"}
+        };
+        audio::NTgCallsClient::instance().join_group_call(chat_id, transport_desc.dump());
 
         bool started = audio::AudioStreamer::instance().play(chat_id, track);
         if (started) {
@@ -144,7 +149,7 @@ void CommandDispatcher::handle_play(int64_t chat_id, int64_t user_id, int64_t ms
             client_->send_message(chat_id, "❌ Error starting audio stream pipeline.", msg_id);
         }
     } else {
-        // Enqueue track into MongoDB
+        // Enqueue track into database
         database::MongoClient::instance().enqueue_track(chat_id, track);
         auto q = database::MongoClient::instance().get_queue(chat_id);
         std::string msg = "⏳ **Queued at position #" + std::to_string(q.size()) + ":** " + track.title;
@@ -182,8 +187,8 @@ void CommandDispatcher::handle_resume(int64_t chat_id, int64_t /*user_id*/, int6
 void CommandDispatcher::handle_stop(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
     database::MongoClient::instance().clear_queue(chat_id);
     audio::AudioStreamer::instance().stop(chat_id);
-    SessionManager::instance().leave_voice_chat(chat_id);
-    client_->send_message(chat_id, "⏹️ Playback stopped and queue cleared. Assistant left voice chat.", msg_id);
+    audio::NTgCallsClient::instance().leave_group_call(chat_id);
+    client_->send_message(chat_id, "⏹️ Playback stopped and queue cleared. Left voice chat.", msg_id);
 }
 
 void CommandDispatcher::handle_queue(int64_t chat_id, int64_t /*user_id*/, int64_t msg_id) {
@@ -281,7 +286,7 @@ void CommandDispatcher::play_next_in_queue(int64_t chat_id) {
     } else {
         // Queue finished
         audio::AudioStreamer::instance().stop(chat_id);
-        SessionManager::instance().leave_voice_chat(chat_id);
+        audio::NTgCallsClient::instance().leave_group_call(chat_id);
         client_->send_message(chat_id, "⏹️ Queue completed. Voice chat playback ended.");
     }
 }
