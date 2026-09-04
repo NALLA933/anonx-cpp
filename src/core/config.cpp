@@ -1,4 +1,5 @@
 #include "senpai/config.hpp"
+#include "senpai/string_utils.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,14 +11,7 @@
 namespace senpai {
 namespace {
 
-std::string trim(const std::string& s) {
-    std::size_t b = 0;
-    std::size_t e = s.size();
-    auto isws = [](unsigned char c) { return std::isspace(c) != 0; };
-    while (b < e && isws(static_cast<unsigned char>(s[b]))) ++b;
-    while (e > b && isws(static_cast<unsigned char>(s[e - 1]))) --e;
-    return s.substr(b, e - b);
-}
+using utils::trim;
 
 std::string stripQuotes(const std::string& s) {
     if (s.size() >= 2) {

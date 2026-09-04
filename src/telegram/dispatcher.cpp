@@ -5,10 +5,16 @@
 #include <algorithm>
 #include <cctype>
 
+#include "senpai/string_utils.hpp"
+
 namespace senpai {
 namespace {
 
 using nlohmann::json;
+
+inline std::string lower(const std::string& s) { return utils::toLower(s); }
+inline bool isSpace(char c) { return utils::isSpace(c); }
+inline std::vector<std::string> tokenize(const std::string& s) { return utils::splitWs(s); }
 
 std::string strField(const json& j, const char* key) {
     if (j.is_object() && j.contains(key) && j[key].is_string()) {
@@ -34,26 +40,6 @@ std::int64_t intField(const json& j, const char* key) {
     return 0;
 }
 
-std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
-bool isSpace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
-
-std::vector<std::string> tokenize(const std::string& s) {
-    std::vector<std::string> out;
-    std::size_t i = 0, n = s.size();
-    while (i < n) {
-        while (i < n && isSpace(s[i])) ++i;
-        if (i >= n) break;
-        std::size_t start = i;
-        while (i < n && !isSpace(s[i])) ++i;
-        out.push_back(s.substr(start, i - start));
-    }
-    return out;
-}
 
 std::string base64Decode(const std::string& in) {
     auto val = [](char c) -> int {
@@ -373,6 +359,8 @@ void Dispatcher::handleUpdate(const std::string& updateJson) {
             if (strField(content, "@type") == "messageText" &&
                 content.contains("text") && content["text"].is_object()) {
                 ctx.text = strField(content["text"], "text");
+            } else if (content.contains("caption") && content["caption"].is_object()) {
+                ctx.text = strField(content["caption"], "text");
             }
         }
         ctx.command = parseCommand(ctx.text);

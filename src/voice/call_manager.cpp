@@ -163,17 +163,27 @@ void CallManager::playNext(std::int64_t chatId) {
     if (cb_.onNotice)
         cb_.onNotice(chatId, Notice::PlayNext);
 
-    if (next->file_path.empty()) {
+    while (next && next->file_path.empty()) {
         ensureFilePath(*next);
         if (next->file_path.empty()) {
-            playNext(chatId);
             if (cb_.onNotice)
                 cb_.onNotice(chatId, Notice::ErrorNoFile);
-            return;
+            next = queue_.getNext(chatId);
+            if (next && next->message_id != 0) {
+                if (cb_.onDeleteMessage)
+                    cb_.onDeleteMessage(chatId, next->message_id);
+                next->message_id = 0;
+                queue_.replaceCurrent(chatId, *next);
+            }
         }
-        queue_.replaceCurrent(chatId, *next);
     }
 
+    if (!next) {
+        stop(chatId);
+        return;
+    }
+
+    queue_.replaceCurrent(chatId, *next);
     playMedia(chatId, *next);
 }
 

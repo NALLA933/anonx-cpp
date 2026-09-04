@@ -548,16 +548,27 @@ std::int64_t TelegramClient::sendPhoto(std::int64_t chatId, const std::string& p
 
     std::string localPath;
     if (photo.rfind("http://", 0) == 0 || photo.rfind("https://", 0) == 0) {
-        std::size_t h = std::hash<std::string>{}(photo);
-        localPath = "cache/img_" + std::to_string(h) + ".jpg";
-        struct stat st;
-        if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
-            std::string cmd = "curl -sSL -f --max-time 10 \"" + photo + "\" -o \"" + localPath + "\" 2>/dev/null";
-            int ret = std::system(cmd.c_str());
-            (void)ret;
+        bool safeUrl = true;
+        for (char c : photo) {
+            if (c == '"' || c == '\'' || c == '`' || c == '$' || c == ';' ||
+                c == '&' || c == '|' || c == '<' || c == '>' || c == '\n' || c == '\r' ||
+                static_cast<unsigned char>(c) <= 32 || static_cast<unsigned char>(c) >= 127) {
+                safeUrl = false;
+                break;
+            }
         }
-        if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
-            localPath.clear();
+        if (safeUrl) {
+            std::size_t h = std::hash<std::string>{}(photo);
+            localPath = "cache/img_" + std::to_string(h) + ".jpg";
+            struct stat st;
+            if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
+                std::string cmd = "curl -sSL -f --max-time 10 '" + photo + "' -o '" + localPath + "' 2>/dev/null";
+                int ret = std::system(cmd.c_str());
+                (void)ret;
+            }
+            if (::stat(localPath.c_str(), &st) != 0 || st.st_size == 0) {
+                localPath.clear();
+            }
         }
     } else {
         struct stat st;

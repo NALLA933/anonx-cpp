@@ -179,8 +179,11 @@ std::optional<Track> YouTube::parseTrackJson(const std::string& jsonText, bool v
 
 std::optional<Track> YouTube::search(const std::string& query,
                                      std::int64_t messageId, bool video) {
-    const std::string cmd = "yt-dlp " + shellQuote("ytsearch1:" + query) +
-                            " --dump-json --no-download --no-warnings 2>/dev/null";
+    std::string cmd = "yt-dlp --socket-timeout 15 " + shellQuote("ytsearch1:" + query) +
+                      " --dump-json --no-download --no-warnings";
+    const std::string cookie = pickCookie();
+    if (!cookie.empty()) cmd += " --cookies " + shellQuote(cookie);
+    cmd += " 2>/dev/null";
     const std::string out = runCommand(cmd);
 
     std::istringstream iss(out);
@@ -202,8 +205,11 @@ std::vector<Track> YouTube::playlist(const std::string& url, int limit,
     std::vector<Track> tracks;
     if (limit <= 0) return tracks;
 
-    const std::string cmd = "yt-dlp " + shellQuote(url) +
-                            " --flat-playlist --dump-json --no-download --no-warnings 2>/dev/null";
+    std::string cmd = "yt-dlp --socket-timeout 15 " + shellQuote(url) +
+                      " --flat-playlist --dump-json --no-download --no-warnings";
+    const std::string cookie = pickCookie();
+    if (!cookie.empty()) cmd += " --cookies " + shellQuote(cookie);
+    cmd += " 2>/dev/null";
     const std::string out = runCommand(cmd);
 
     std::istringstream iss(out);
@@ -220,6 +226,13 @@ std::vector<Track> YouTube::playlist(const std::string& url, int limit,
 }
 
 std::optional<std::string> YouTube::download(const std::string& videoId, bool video) {
+    if (videoId.empty() || videoId.size() > 64) return std::nullopt;
+    for (char c : videoId) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') {
+            return std::nullopt;
+        }
+    }
+
     const std::string ext = video ? "mp4" : "webm";
     const std::string filename = std::string(kDownloadsDir) + "/" + videoId + "." + ext;
 
@@ -230,7 +243,7 @@ std::optional<std::string> YouTube::download(const std::string& videoId, bool vi
         video ? "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio)"
               : "bestaudio[ext=webm][acodec=opus]";
 
-    std::string cmd = "yt-dlp " + shellQuote(url) +
+    std::string cmd = "yt-dlp --socket-timeout 15 " + shellQuote(url) +
                       " --no-playlist --geo-bypass --no-warnings --no-check-certificate";
     cmd += " -f " + shellQuote(selector);
     if (video) cmd += " --merge-output-format mp4";

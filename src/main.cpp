@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include "senpai/app.hpp"
+#include "senpai/version.hpp"
 
 #if defined(SENPAI_WITH_TDLIB)
 #include <chrono>
@@ -52,7 +53,7 @@ bool ensureDirs(const senpai::Logger& log) {
 int runBot(const std::string& envFile) {
     senpai::LogSink::instance().init("log.txt");
     senpai::Logger log("senpai");
-    log.info(std::string("SenpaiMusic C++ ") + senpai::App::kVersion + " — initialising");
+    log.info(std::string("SenpaiMusic C++ ") + senpai::kVersion + " — initialising");
 
     senpai::Config config = senpai::Config::load(envFile);
     config.check();

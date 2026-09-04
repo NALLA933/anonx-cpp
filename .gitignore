@@ -25,6 +25,8 @@
 *.app
 /anonx
 /anonx_*
+/senpai
+/senpai_*
 
 build/
 build_*/

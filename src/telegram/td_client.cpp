@@ -195,9 +195,9 @@ void TdClient::onIncoming(std::string s) {
             }
             if (prom) {
                 prom->set_value(std::move(s));
-                return;
             }
         }
+        return;
     }
 
     UpdateHandler h;

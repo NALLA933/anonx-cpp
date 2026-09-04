@@ -21,8 +21,9 @@ if(NOT nlohmann_json_FOUND)
   FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
+# Database component
 add_library(senpai_data
-  src/database.cpp
+  src/database/database.cpp
 )
 target_include_directories(senpai_data
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -30,29 +31,44 @@ target_link_libraries(senpai_data
   PUBLIC SQLite::SQLite3 Threads::Threads)
 target_compile_options(senpai_data PRIVATE -Wall -Wextra)
 
-add_library(senpai_core
-  src/config.cpp
-  src/logger.cpp
-  src/app.cpp
-  src/youtube.cpp
+# Utilities component
+add_library(senpai_utils
+  src/utils/youtube.cpp
+  src/utils/sysinfo.cpp
 )
-target_link_libraries(senpai_core
+target_include_directories(senpai_utils
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(senpai_utils
   PUBLIC senpai_data
+  PRIVATE nlohmann_json::nlohmann_json)
+target_compile_options(senpai_utils PRIVATE -Wall -Wextra)
+
+# Core component
+add_library(senpai_core
+  src/core/config.cpp
+  src/core/logger.cpp
+  src/core/app.cpp
+)
+target_include_directories(senpai_core
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(senpai_core
+  PUBLIC senpai_data senpai_utils
   PRIVATE nlohmann_json::nlohmann_json)
 target_compile_options(senpai_core PRIVATE -Wall -Wextra)
 
+# Voice component
 add_library(senpai_voice
-  src/call_manager.cpp
+  src/voice/call_manager.cpp
 )
 target_include_directories(senpai_voice
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(senpai_voice PUBLIC Threads::Threads)
+target_link_libraries(senpai_voice PUBLIC Threads::Threads senpai_utils)
 target_compile_options(senpai_voice PRIVATE -Wall -Wextra)
 
 option(SENPAI_WITH_NTGCALLS "Build the real NTgCalls voice transport" OFF)
 if(SENPAI_WITH_NTGCALLS)
   find_package(ntgcalls REQUIRED)
-  add_library(senpai_voice_ntgcalls src/ntgcalls_transport.cpp)
+  add_library(senpai_voice_ntgcalls src/voice/ntgcalls_transport.cpp)
   target_compile_definitions(senpai_voice_ntgcalls PUBLIC SENPAI_WITH_NTGCALLS)
   target_link_libraries(senpai_voice_ntgcalls
     PUBLIC senpai_voice ntgcalls)
@@ -60,31 +76,37 @@ if(SENPAI_WITH_NTGCALLS)
   message(STATUS "SENPAI_WITH_NTGCALLS=ON — building senpai_voice_ntgcalls against NTgCalls")
 endif()
 
+# Plugins component
 add_library(senpai_plugins
-  src/lang.cpp
-  src/buttons.cpp
-  src/guards.cpp
-  src/plugins.cpp
-  src/sysinfo.cpp
-  src/admin_plugins.cpp
+  src/plugins/lang.cpp
+  src/plugins/buttons.cpp
+  src/plugins/guards.cpp
+  src/plugins/plugins.cpp
+  src/plugins/admin_plugins.cpp
 )
+target_include_directories(senpai_plugins
+  PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(senpai_plugins
   PUBLIC senpai_core senpai_voice
   PRIVATE nlohmann_json::nlohmann_json)
 target_compile_options(senpai_plugins PRIVATE -Wall -Wextra)
 
+# Main bot executable
 add_executable(senpai src/main.cpp)
+target_include_directories(senpai
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(senpai PRIVATE senpai_core)
 target_compile_options(senpai PRIVATE -Wall -Wextra)
 
+# Telegram and Runtime layer
 set(SENPAI_TG_SOURCES
-  src/td_client.cpp
-  src/telegram_client.cpp
-  src/dispatcher.cpp
-  src/userbot.cpp
-  src/telegram_bot_api.cpp
-  src/voice_signaling.cpp
-  src/runtime.cpp
+  src/telegram/td_client.cpp
+  src/telegram/telegram_client.cpp
+  src/telegram/dispatcher.cpp
+  src/telegram/userbot.cpp
+  src/telegram/telegram_bot_api.cpp
+  src/voice/voice_signaling.cpp
+  src/core/runtime.cpp
 )
 
 option(SENPAI_WITH_TDLIB "Build the Telegram layer against a real TDLib (Td::TdJson)" OFF)
@@ -107,17 +129,19 @@ if(SENPAI_WITH_TDLIB OR ANONX_WITH_TDLIB)
         INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/include"
       )
     else()
-      message(FATAL_ERROR "SENPAI_WITH_TDLIB=ON but neither Td CMake package nor libtdjson.so was found.")
+      message(FATAL_ERROR "SENPAI_WITH_TDLIB=ON but neither Td CMake package nor libtdjson was found.")
     endif()
   endif()
   add_library(senpai_tg ${SENPAI_TG_SOURCES})
+  target_include_directories(senpai_tg
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(senpai_tg
     PUBLIC senpai_core Td::TdJson
     PRIVATE nlohmann_json::nlohmann_json)
   target_compile_options(senpai_tg PRIVATE -Wall -Wextra)
   message(STATUS "SENPAI_WITH_TDLIB=ON — building senpai_tg against Td::TdJson")
 
-  target_sources(senpai_tg PRIVATE src/plugins_router.cpp)
+  target_sources(senpai_tg PRIVATE src/plugins/plugins_router.cpp)
   target_link_libraries(senpai_tg PUBLIC senpai_plugins)
 
   target_compile_definitions(senpai PRIVATE SENPAI_WITH_TDLIB)
@@ -132,4 +156,17 @@ if(SENPAI_WITH_TDLIB OR ANONX_WITH_TDLIB)
   else()
     message(STATUS "senpai: TDLib without NTgCalls — streaming disabled")
   endif()
+endif()
+
+# Offline Unit Tests
+option(BUILD_TESTING "Build offline unit test suite" ON)
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(senpai_tests tests/test_main.cpp)
+  target_include_directories(senpai_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(senpai_tests
+    PRIVATE senpai_core senpai_plugins)
+  target_compile_options(senpai_tests PRIVATE -Wall -Wextra)
+  add_test(NAME senpai_unit_tests COMMAND senpai_tests)
 endif()
