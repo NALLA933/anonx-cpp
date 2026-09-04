@@ -39,7 +39,8 @@ bool looksLikeUnknownMethod(const json& err) {
     const std::string msg = strField(err, "message");
     return msg.find("Unknown") != std::string::npos ||
            msg.find("unknown") != std::string::npos ||
-           msg.find("not supported") != std::string::npos;
+           msg.find("not supported") != std::string::npos ||
+           msg.find("Input group call") != std::string::npos;
 }
 
 std::int32_t audioSourceId(const json& params) {
@@ -69,13 +70,43 @@ struct CallState {
     }
 };
 
-std::atomic<int> g_dialect{0};
+std::atomic<int> g_dialect{1}; // 1 = modern joinVideoChat, 2 = legacy joinGroupCall
 
-const char* joinName(int dialect) {
-    return dialect == 2 ? "joinVideoChat" : "joinGroupCall";
-}
-const char* leaveName(int dialect) {
-    return dialect == 2 ? "leaveVideoChat" : "leaveGroupCall";
+json buildJoinRequest(int dialect, std::int32_t groupCallId, std::int64_t myId,
+                      std::int32_t audioSource, const std::string& localParams) {
+    json req;
+    req["group_call_id"] = groupCallId;
+
+    if (myId != 0) {
+        json participant;
+        participant["@type"] = "messageSenderUser";
+        participant["user_id"] = myId;
+        req["participant_id"] = participant;
+    } else {
+        req["participant_id"] = nullptr;
+    }
+
+    if (dialect == 1) {
+        // Modern TDLib: joinVideoChat with groupCallJoinParameters
+        req["@type"] = "joinVideoChat";
+        json params;
+        params["@type"] = "groupCallJoinParameters";
+        params["audio_source_id"] = audioSource;
+        params["payload"] = localParams;
+        params["is_muted"] = false;
+        params["is_my_video_enabled"] = false;
+        req["join_parameters"] = params;
+        req["invite_hash"] = "";
+    } else {
+        // Legacy TDLib: joinGroupCall with flat parameters
+        req["@type"] = "joinGroupCall";
+        req["audio_source_id"] = audioSource;
+        req["payload"] = localParams;
+        req["is_muted"] = false;
+        req["is_my_video_enabled"] = false;
+        req["invite_hash"] = "";
+    }
+    return req;
 }
 
 std::int32_t activeGroupCallId(TelegramClient& client, std::int64_t chatId) {
@@ -137,33 +168,23 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
             myId = client->getMe().id;
         }
 
-        json req;
-        req["chat_id"] = chatId;
-        req["group_call_id"] = groupCallId;
-        json participant;
-        participant["@type"] = "messageSenderUser";
-        participant["user_id"] = myId;
-        req["participant_id"] = participant;
-        req["audio_source_id"] = audioSourceId(payload);
-        req["payload"] = localParams;
-        req["is_muted"] = false;
-        req["is_my_video_enabled"] = false;
-        req["invite_hash"] = "";
-
+        const std::int32_t audioSource = audioSourceId(payload);
         int dialect = g_dialect.load();
-        const int first = dialect == 0 ? 1 : dialect;
+        if (dialect != 1 && dialect != 2) dialect = 1;
+
         json reply;
         for (int attempt = 0; attempt < 2; ++attempt) {
-            const int tryDialect = attempt == 0 ? first : (first == 1 ? 2 : 1);
-            req["@type"] = joinName(tryDialect);
+            const int tryDialect = attempt == 0 ? dialect : (dialect == 1 ? 2 : 1);
+            json req = buildJoinRequest(tryDialect, groupCallId, myId, audioSource, localParams);
+            log().info("joinGroupCall: attempting dialect " + std::to_string(tryDialect) +
+                       " (" + strField(req, "@type") + ") for chat " + std::to_string(chatId));
             reply = json::parse(client->raw().invoke(req.dump(), 30000), nullptr, false);
             if (!reply.is_discarded() && !isError(reply)) {
                 g_dialect.store(tryDialect);
                 break;
             }
 
-            if (reply.is_discarded() || !looksLikeUnknownMethod(reply) ||
-                dialect != 0) {
+            if (reply.is_discarded() || !looksLikeUnknownMethod(reply)) {
                 break;
             }
         }
@@ -187,20 +208,22 @@ NtgCallsTransport::Signaling makeAssistantSignaling(TelegramClient& assistant) {
         }
 
         state->remember(chatId, groupCallId);
+        log().info("join succeeded: assistant joined group_call_id=" +
+                   std::to_string(groupCallId) + " in chat " + std::to_string(chatId));
 
         const std::string remote = strField(reply, "text");
         return remote.empty() ? "{}" : remote;
     };
 
     sig.leaveGroupCall = [client, state](std::int64_t chatId) {
-        std::int32_t groupCallId = state->take(chatId);
-        if (groupCallId == 0) groupCallId = activeGroupCallId(*client, chatId);
-        if (groupCallId == 0) return;
+        const std::int32_t groupCallId = state->take(chatId);
+        if (groupCallId == 0) return; // Only leave if we previously joined
 
-        const int dialect = g_dialect.load();
         json req;
-        req["@type"] = leaveName(dialect == 0 ? 1 : dialect);
+        req["@type"] = "leaveGroupCall";
         req["group_call_id"] = groupCallId;
+        log().info("leaveGroupCall: leaving group_call_id=" + std::to_string(groupCallId) +
+                   " in chat " + std::to_string(chatId));
         client->raw().send(req.dump());
     };
 
