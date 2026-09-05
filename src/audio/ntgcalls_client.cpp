@@ -84,19 +84,12 @@ struct DynamicNtgCalls {
     }
 };
 
-void async_promise_callback(void* user_data) {
-    if (user_data) {
-        auto* prom = static_cast<std::promise<int>*>(user_data);
-        prom->set_value(0);
-    }
-}
-
-ntg_async_struct make_async_struct(std::promise<int>& prom, int& error_code, char*& error_msg) {
+ntg_async_struct make_async_struct() {
     ntg_async_struct async{};
-    async.userData = &prom;
-    async.errorCode = &error_code;
-    async.errorMessage = &error_msg;
-    async.promise = &async_promise_callback;
+    async.userData = nullptr;
+    async.errorCode = nullptr;
+    async.errorMessage = nullptr;
+    async.promise = nullptr;
     return async;
 }
 
@@ -170,10 +163,7 @@ void NTgCallsClient::shutdown() {
 
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0) {
         for (int64_t chat_id : pimpl_->active_chats) {
-            std::promise<int> prom;
-            int err = 0;
-            char* msg = nullptr;
-            auto async = make_async_struct(prom, err, msg);
+            auto async = make_async_struct();
             pimpl_->lib.stop(pimpl_->instance_ptr, chat_id, async);
         }
         pimpl_->lib.destroy(pimpl_->instance_ptr);
@@ -190,11 +180,8 @@ bool NTgCallsClient::join_group_call(int64_t chat_id, const std::string& transpo
     if (!pimpl_->initialized) init();
 
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0) {
-        std::promise<int> create_prom;
-        int err = 0;
-        char* msg = nullptr;
         char* desc = nullptr;
-        auto create_async = make_async_struct(create_prom, err, msg);
+        auto create_async = make_async_struct();
 
         int res = pimpl_->lib.create(pimpl_->instance_ptr, chat_id, &desc, create_async);
         if (res != 0 && res != 1) {
@@ -202,8 +189,7 @@ bool NTgCallsClient::join_group_call(int64_t chat_id, const std::string& transpo
             return false;
         }
 
-        std::promise<int> conn_prom;
-        auto conn_async = make_async_struct(conn_prom, err, msg);
+        auto conn_async = make_async_struct();
         pimpl_->lib.connect(pimpl_->instance_ptr, chat_id, const_cast<char*>(transport_json.c_str()), false, conn_async);
     }
 
@@ -218,10 +204,7 @@ bool NTgCallsClient::leave_group_call(int64_t chat_id) {
     if (!pimpl_->active_chats.count(chat_id)) return false;
 
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0) {
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
+        auto async = make_async_struct();
         pimpl_->lib.stop(pimpl_->instance_ptr, chat_id, async);
     }
 
@@ -237,11 +220,7 @@ bool NTgCallsClient::send_pcm_frame(int64_t chat_id, const uint8_t* pcm_data, si
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0 && pimpl_->lib.send_external_frame) {
         ntg_frame_data_struct frame_data{};
         frame_data.absoluteCaptureTimestampMs = 0;
-
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
+        auto async = make_async_struct();
 
         pimpl_->lib.send_external_frame(pimpl_->instance_ptr, chat_id,
                                         NTG_STREAM_SPEAKER,
@@ -257,10 +236,7 @@ bool NTgCallsClient::pause(int64_t chat_id) {
     if (!pimpl_->active_chats.count(chat_id)) return false;
 
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0 && pimpl_->lib.pause) {
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
+        auto async = make_async_struct();
         pimpl_->lib.pause(pimpl_->instance_ptr, chat_id, async);
     }
     return true;
@@ -271,10 +247,7 @@ bool NTgCallsClient::resume(int64_t chat_id) {
     if (!pimpl_->active_chats.count(chat_id)) return false;
 
     if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0 && pimpl_->lib.resume) {
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
+        auto async = make_async_struct();
         pimpl_->lib.resume(pimpl_->instance_ptr, chat_id, async);
     }
     return true;
