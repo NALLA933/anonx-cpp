@@ -191,7 +191,9 @@ void AudioStreamer::on_stream_eof(int64_t chat_id) {
     ANONX_LOG_INFO("AudioStreamer", "Track playback ended in chat: ", chat_id);
 
     if (on_track_ended_) {
-        on_track_ended_(chat_id, finished_track);
+        std::thread([cb = on_track_ended_, chat_id, finished_track]() {
+            cb(chat_id, finished_track);
+        }).detach();
     }
 }
 

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <mutex>
@@ -89,15 +90,28 @@ std::string FFmpegPipeline::resolve_stream_url(const std::string& input_query) {
         return *cached;
     }
 
+    std::string query = input_query;
+    if (query.rfind("http://", 0) != 0 && query.rfind("https://", 0) != 0) {
+        query = "ytsearch1:" + input_query;
+    }
+
+    std::string cookie_arg;
+    for (const auto& cpath : {"cookies.txt", "cookies/cookies.txt", "cookies/intergraft.txt", "cookies/deejay.txt"}) {
+        if (std::filesystem::exists(cpath)) {
+            cookie_arg = std::string("--cookies \"") + cpath + "\" ";
+            break;
+        }
+    }
+
     // Use yt-dlp to extract direct audio streaming URL
     std::string command;
 #if defined(_WIN32)
-    command = "yt-dlp -f bestaudio -g \"" + input_query + "\" 2>nul";
+    command = "yt-dlp " + cookie_arg + "-f bestaudio -g \"" + query + "\" 2>nul";
 #else
-    command = "yt-dlp -f bestaudio -g \"" + input_query + "\" 2>/dev/null";
+    command = "export PATH=\"$HOME/.deno/bin:$PATH:/usr/local/bin\"; yt-dlp " + cookie_arg + "-f bestaudio -g \"" + query + "\" 2>/dev/null";
 #endif
 
-    ANONX_LOG_INFO("FFmpegPipeline", "Extracting stream URL via yt-dlp: ", input_query);
+    ANONX_LOG_INFO("FFmpegPipeline", "Extracting stream URL via yt-dlp: ", query);
 
     std::array<char, 512> buffer{};
     std::string result;
@@ -188,7 +202,11 @@ void FFmpegPipeline::stop() {
 #endif
 
     if (worker_thread_.joinable()) {
-        worker_thread_.join();
+        if (std::this_thread::get_id() == worker_thread_.get_id()) {
+            worker_thread_.detach();
+        } else {
+            worker_thread_.join();
+        }
     }
 }
 
