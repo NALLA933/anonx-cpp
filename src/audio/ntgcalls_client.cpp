@@ -84,11 +84,14 @@ struct DynamicNtgCalls {
     }
 };
 
+static thread_local int g_async_error_code = 0;
+static thread_local char* g_async_error_msg = nullptr;
+
 ntg_async_struct make_async_struct() {
     ntg_async_struct async{};
     async.userData = nullptr;
-    async.errorCode = nullptr;
-    async.errorMessage = nullptr;
+    async.errorCode = &g_async_error_code;
+    async.errorMessage = &g_async_error_msg;
     async.promise = nullptr;
     return async;
 }
