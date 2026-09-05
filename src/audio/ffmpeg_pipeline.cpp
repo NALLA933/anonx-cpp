@@ -190,7 +190,7 @@ void FFmpegPipeline::stop() {
     }
 #else
     if (child_pid_ > 0) {
-        kill(child_pid_, SIGTERM);
+        kill(-child_pid_, SIGTERM);
         int status = 0;
         waitpid(child_pid_, &status, WNOHANG);
         child_pid_ = -1;
@@ -230,23 +230,30 @@ void FFmpegPipeline::reader_thread_loop(const std::string& source_uri,
                                        FrameCallback on_frame,
                                        EofCallback on_eof,
                                        ErrorCallback on_error) {
-    std::string resolved_url = resolve_stream_url(source_uri);
+    std::string cookie_arg;
+    for (const auto& cpath : {"cookies.txt", "cookies/cookies.txt", "cookies/intergraft.txt", "cookies/deejay.txt"}) {
+        if (std::filesystem::exists(cpath)) {
+            cookie_arg = std::string("--cookies \"") + cpath + "\" ";
+            break;
+        }
+    }
 
-    std::vector<std::string> args = {
-        "ffmpeg",
-        "-reconnect", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "5",
-        "-i", resolved_url,
-        "-f", "s16le",
-        "-ac", "2",
-        "-ar", "48000",
-        "-acodec", "pcm_s16le",
-        "-loglevel", "quiet",
-        "pipe:1"
-    };
+    std::string pipeline_cmd;
+    bool is_yt = (source_uri.rfind("http://", 0) == 0 || source_uri.rfind("https://", 0) == 0 ||
+                  (source_uri.find("://") == std::string::npos && source_uri.find('.') == std::string::npos));
 
-    ANONX_LOG_INFO("FFmpegPipeline", "Spawning FFmpeg stream pipeline for: ", source_uri);
+    if (is_yt) {
+        std::string query = source_uri;
+        if (query.rfind("http://", 0) != 0 && query.rfind("https://", 0) != 0) {
+            query = "ytsearch1:" + source_uri;
+        }
+        pipeline_cmd = "export PATH=\"$HOME/.deno/bin:$PATH:/usr/local/bin\"; yt-dlp " + cookie_arg +
+                       "-f bestaudio -o - \"" + query + "\" 2>/dev/null | ffmpeg -i pipe:0 -f s16le -ac 2 -ar 48000 -acodec pcm_s16le -loglevel quiet pipe:1";
+    } else {
+        pipeline_cmd = "ffmpeg -i \"" + source_uri + "\" -f s16le -ac 2 -ar 48000 -acodec pcm_s16le -loglevel quiet pipe:1";
+    }
+
+    ANONX_LOG_INFO("FFmpegPipeline", "Spawning audio stream pipeline for: ", source_uri);
 
 #if defined(_WIN32)
     HANDLE h_read = nullptr;
@@ -272,8 +279,7 @@ void FFmpegPipeline::reader_thread_loop(const std::string& source_uri,
 
     PROCESS_INFORMATION pi{};
 
-    std::string cmdline = "ffmpeg -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -i \"" +
-                          resolved_url + "\" -f s16le -ac 2 -ar 48000 -acodec pcm_s16le -loglevel quiet pipe:1";
+    std::string cmdline = "cmd.exe /c \"" + pipeline_cmd + "\"";
 
     if (!CreateProcessA(nullptr, cmdline.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {
         CloseHandle(h_read);
@@ -341,18 +347,13 @@ void FFmpegPipeline::reader_thread_loop(const std::string& source_uri,
     }
 
     if (pid == 0) {
-        // Child Process
+        // Child Process: set own process group so killpg cleanly cleans up both yt-dlp & ffmpeg
+        setpgid(0, 0);
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
 
-        std::vector<char*> c_args;
-        for (auto& a : args) {
-            c_args.push_back(a.data());
-        }
-        c_args.push_back(nullptr);
-
-        execvp(c_args[0], c_args.data());
+        execl("/bin/sh", "sh", "-c", pipeline_cmd.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
 
