@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -46,15 +47,15 @@ private:
     struct ChatSession {
         int64_t chat_id{0};
         database::TrackItem current_track;
-        PlayerState state{PlayerState::Idle};
-        int volume{100};
+        std::atomic<PlayerState> state{PlayerState::Idle};
+        std::atomic<int> volume{100};
         std::unique_ptr<FFmpegPipeline> pipeline;
     };
 
-    void on_frame_received(int64_t chat_id, const uint8_t* pcm_data, size_t size_bytes);
+    void on_frame_received(int64_t chat_id, int volume, const uint8_t* pcm_data, size_t size_bytes);
     void on_stream_eof(int64_t chat_id);
 
-    mutable std::mutex mutex_;
+    mutable std::mutex sessions_mutex_;
     std::unordered_map<int64_t, std::shared_ptr<ChatSession>> sessions_;
 
     TrackEndedCallback on_track_ended_;

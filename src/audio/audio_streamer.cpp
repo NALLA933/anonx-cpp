@@ -9,7 +9,7 @@ namespace anonx::audio {
 AudioStreamer::AudioStreamer() = default;
 
 AudioStreamer::~AudioStreamer() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     for (auto& [_, session] : sessions_) {
         if (session && session->pipeline) {
             session->pipeline->stop();
@@ -26,12 +26,12 @@ AudioStreamer& AudioStreamer::instance() {
 bool AudioStreamer::play(int64_t chat_id, const database::TrackItem& track) {
     std::shared_ptr<ChatSession> session;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
         auto it = sessions_.find(chat_id);
         if (it == sessions_.end()) {
             session = std::make_shared<ChatSession>();
             session->chat_id = chat_id;
-            session->volume = 100;
+            session->volume.store(100, std::memory_order_relaxed);
             sessions_[chat_id] = session;
         } else {
             session = it->second;
@@ -52,10 +52,11 @@ bool AudioStreamer::play(int64_t chat_id, const database::TrackItem& track) {
 
     ANONX_LOG_INFO("AudioStreamer", "Starting playback for track '", track.title, "' in chat: ", chat_id);
 
+    auto vol_ptr = &session->volume;
     bool started = session->pipeline->start(
         source,
-        [this, chat_id](const uint8_t* pcm_data, size_t size_bytes) {
-            this->on_frame_received(chat_id, pcm_data, size_bytes);
+        [this, chat_id, vol_ptr](const uint8_t* pcm_data, size_t size_bytes) {
+            this->on_frame_received(chat_id, vol_ptr->load(std::memory_order_relaxed), pcm_data, size_bytes);
         },
         [this, chat_id]() {
             this->on_stream_eof(chat_id);
@@ -78,11 +79,11 @@ bool AudioStreamer::play(int64_t chat_id, const database::TrackItem& track) {
 }
 
 bool AudioStreamer::pause(int64_t chat_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     auto it = sessions_.find(chat_id);
     if (it != sessions_.end() && it->second->pipeline) {
         it->second->pipeline->pause();
-        it->second->state = PlayerState::Paused;
+        it->second->state.store(PlayerState::Paused, std::memory_order_relaxed);
         NTgCallsClient::instance().pause(chat_id);
         return true;
     }
@@ -90,11 +91,11 @@ bool AudioStreamer::pause(int64_t chat_id) {
 }
 
 bool AudioStreamer::resume(int64_t chat_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     auto it = sessions_.find(chat_id);
     if (it != sessions_.end() && it->second->pipeline) {
         it->second->pipeline->resume();
-        it->second->state = PlayerState::Playing;
+        it->second->state.store(PlayerState::Playing, std::memory_order_relaxed);
         NTgCallsClient::instance().resume(chat_id);
         return true;
     }
@@ -104,7 +105,7 @@ bool AudioStreamer::resume(int64_t chat_id) {
 bool AudioStreamer::stop(int64_t chat_id) {
     std::shared_ptr<ChatSession> session;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
         auto it = sessions_.find(chat_id);
         if (it != sessions_.end()) {
             session = it->second;
@@ -117,7 +118,7 @@ bool AudioStreamer::stop(int64_t chat_id) {
             session->pipeline->stop();
             session->pipeline.reset();
         }
-        session->state = PlayerState::Idle;
+        session->state.store(PlayerState::Idle, std::memory_order_relaxed);
         NTgCallsClient::instance().leave_group_call(chat_id);
         return true;
     }
@@ -125,75 +126,65 @@ bool AudioStreamer::stop(int64_t chat_id) {
 }
 
 bool AudioStreamer::set_volume(int64_t chat_id, int volume) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     auto it = sessions_.find(chat_id);
     if (it != sessions_.end()) {
-        it->second->volume = std::clamp(volume, 0, 200);
-        NTgCallsClient::instance().set_volume(chat_id, it->second->volume);
+        int vol = std::clamp(volume, 0, 200);
+        it->second->volume.store(vol, std::memory_order_relaxed);
+        NTgCallsClient::instance().set_volume(chat_id, vol);
         return true;
     }
     return false;
 }
 
 PlayerState AudioStreamer::get_state(int64_t chat_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     auto it = sessions_.find(chat_id);
     if (it != sessions_.end()) {
-        return it->second->state;
+        return it->second->state.load(std::memory_order_relaxed);
     }
     return PlayerState::Idle;
 }
 
 std::optional<database::TrackItem> AudioStreamer::get_current_track(int64_t chat_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
     auto it = sessions_.find(chat_id);
-    if (it != sessions_.end() && it->second->state != PlayerState::Idle) {
+    if (it != sessions_.end() && it->second->state.load(std::memory_order_relaxed) != PlayerState::Idle) {
         return it->second->current_track;
     }
     return std::nullopt;
 }
 
-void AudioStreamer::on_frame_received(int64_t chat_id, const uint8_t* pcm_data, size_t size_bytes) {
-    int vol = 100;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = sessions_.find(chat_id);
-        if (it != sessions_.end()) {
-            vol = it->second->volume;
-        }
-    }
-
+void AudioStreamer::on_frame_received(int64_t chat_id, int vol, const uint8_t* pcm_data, size_t size_bytes) {
     if (vol == 100) {
         NTgCallsClient::instance().send_pcm_frame(chat_id, pcm_data, size_bytes);
-    } else {
-        // Apply PCM volume scaling to 16-bit signed samples
-        size_t sample_count = size_bytes / sizeof(int16_t);
-        const auto* in_samples = reinterpret_cast<const int16_t*>(pcm_data);
-        std::vector<int16_t> scaled_samples(sample_count);
-
-        float gain = static_cast<float>(vol) / 100.0f;
-        for (size_t i = 0; i < sample_count; ++i) {
-            float s = static_cast<float>(in_samples[i]) * gain;
-            s = std::clamp(s, -32768.0f, 32767.0f);
-            scaled_samples[i] = static_cast<int16_t>(s);
-        }
-
-        NTgCallsClient::instance().send_pcm_frame(
-            chat_id,
-            reinterpret_cast<const uint8_t*>(scaled_samples.data()),
-            size_bytes
-        );
+        return;
     }
+
+    size_t sample_count = size_bytes / sizeof(int16_t);
+    const auto* in_samples = reinterpret_cast<const int16_t*>(pcm_data);
+    std::vector<int16_t> samples(sample_count);
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        int scaled = (static_cast<int>(in_samples[i]) * vol) / 100;
+        samples[i] = static_cast<int16_t>(std::clamp(scaled, -32768, 32767));
+    }
+
+    NTgCallsClient::instance().send_pcm_frame(
+        chat_id,
+        reinterpret_cast<const uint8_t*>(samples.data()),
+        size_bytes
+    );
 }
 
 void AudioStreamer::on_stream_eof(int64_t chat_id) {
     database::TrackItem finished_track;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
         auto it = sessions_.find(chat_id);
         if (it != sessions_.end()) {
             finished_track = it->second->current_track;
-            it->second->state = PlayerState::Idle;
+            it->second->state.store(PlayerState::Idle, std::memory_order_relaxed);
         }
     }
 

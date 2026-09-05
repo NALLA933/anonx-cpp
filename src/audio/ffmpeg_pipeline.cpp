@@ -5,7 +5,10 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <optional>
+#include <mutex>
 #include <sstream>
+#include <unordered_map>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -18,6 +21,49 @@
 #endif
 
 namespace anonx::audio {
+
+namespace {
+
+struct CacheEntry {
+    std::string url;
+    std::chrono::steady_clock::time_point expires_at;
+};
+
+class StreamUrlCache {
+public:
+    std::optional<std::string> get(const std::string& key) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        auto it = cache_.find(key);
+        if (it != cache_.end()) {
+            if (it->second.expires_at > std::chrono::steady_clock::now()) {
+                return it->second.url;
+            }
+            cache_.erase(it);
+        }
+        return std::nullopt;
+    }
+
+    void put(const std::string& key, const std::string& val, std::chrono::seconds ttl = std::chrono::hours(2)) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        cache_[key] = CacheEntry{val, std::chrono::steady_clock::now() + ttl};
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        cache_.clear();
+    }
+
+private:
+    std::mutex mtx_;
+    std::unordered_map<std::string, CacheEntry> cache_;
+};
+
+StreamUrlCache& get_url_cache() {
+    static StreamUrlCache cache;
+    return cache;
+}
+
+} // namespace
 
 FFmpegPipeline::FFmpegPipeline() = default;
 
@@ -35,6 +81,12 @@ std::string FFmpegPipeline::resolve_stream_url(const std::string& input_query) {
     } else if (input_query.find("://") == std::string::npos && input_query.find('.') != std::string::npos) {
         // Local file path
         return input_query;
+    }
+
+    // High-concurrency TTL Cache Lookup (eliminates duplicate yt-dlp invocations)
+    if (auto cached = get_url_cache().get(input_query); cached.has_value()) {
+        ANONX_LOG_INFO("FFmpegPipeline", "Cache hit for stream URL: ", input_query);
+        return *cached;
     }
 
     // Use yt-dlp to extract direct audio streaming URL
@@ -81,7 +133,13 @@ std::string FFmpegPipeline::resolve_stream_url(const std::string& input_query) {
         return input_query;
     }
 
+    // Cache successful resolution for 2 hours
+    get_url_cache().put(input_query, result, std::chrono::hours(2));
     return result;
+}
+
+void FFmpegPipeline::clear_stream_url_cache() {
+    get_url_cache().clear();
 }
 
 bool FFmpegPipeline::start(const std::string& source_uri,

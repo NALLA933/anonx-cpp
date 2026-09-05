@@ -46,7 +46,7 @@ void print_banner() {
 void ensure_directories(const anonx::core::BotConfig& config) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    for (const auto& dir : {config.data_dir, config.downloads_dir, "sessions", "cache"}) {
+    for (std::string_view dir : {std::string_view(config.data_dir), std::string_view(config.downloads_dir), std::string_view("sessions"), std::string_view("cache")}) {
         if (!fs::exists(dir, ec)) {
             fs::create_directories(dir, ec);
         }

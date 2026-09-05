@@ -13,6 +13,7 @@ namespace anonx::core {
 
 namespace {
 
+#if !ANONX_HAS_SPDLOG
 std::string current_timestamp() {
     auto now = std::chrono::system_clock::now();
     auto in_time_t = std::chrono::system_clock::to_time_t(now);
@@ -50,6 +51,7 @@ const char* level_to_color(LogLevel level) {
     }
     return "\033[0m";
 }
+#endif
 
 } // namespace
 

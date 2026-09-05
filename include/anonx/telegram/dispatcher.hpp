@@ -1,6 +1,8 @@
 #pragma once
 
 #include <anonx/core/config.hpp>
+#include <anonx/core/rate_limiter.hpp>
+#include <anonx/core/thread_pool.hpp>
 #include <anonx/telegram/tdlib_client.hpp>
 #include <memory>
 #include <string>
@@ -21,6 +23,9 @@ private:
     CommandDispatcher();
     ~CommandDispatcher() = default;
 
+    void execute_command(const std::string& cmd, const std::string& args,
+                         int64_t chat_id, int64_t sender_user_id, int64_t msg_id);
+
     // Command Handlers
     void handle_play(int64_t chat_id, int64_t user_id, int64_t msg_id, const std::string& query);
     void handle_skip(int64_t chat_id, int64_t user_id, int64_t msg_id);
@@ -37,6 +42,8 @@ private:
 
     core::BotConfig config_;
     std::shared_ptr<TDLibClient> client_;
+    std::unique_ptr<core::ThreadPool> thread_pool_;
+    std::unique_ptr<core::RateLimiter> rate_limiter_;
     int64_t start_time_{0};
 };
 

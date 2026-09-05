@@ -12,7 +12,6 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - API_ID=${API_ID}
       - API_HASH=${API_HASH}
-      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/anonx}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - AUTO_UPDATE_YTDLP=true
     volumes:
@@ -20,9 +19,6 @@ services:
       - ./data:/app/data
       - ./sessions:/app/sessions
       - ./downloads:/app/downloads
-    depends_on:
-      mongo:
-        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -30,24 +26,3 @@ services:
           memory: 700M
         reservations:
           memory: 120M
-
-  mongo:
-    image: mongo:6.0-focal
-    container_name: anonx_mongo
-    restart: unless-stopped
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 250M
-
-volumes:
-  mongo_data:

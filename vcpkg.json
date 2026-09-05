@@ -8,10 +8,7 @@
   "dependencies": [
     "fmt",
     "spdlog",
-    "nlohmann-json",
-    "openssl",
-    "zlib",
-    "mongo-cxx-driver"
+    "nlohmann-json"
   ],
   "builtin-baseline": "5047b4756543b59df9ceb10c55d0a6aa332612bb"
 }

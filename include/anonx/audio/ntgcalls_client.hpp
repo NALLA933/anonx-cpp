@@ -36,8 +36,6 @@ public:
     // Controls
     bool pause(int64_t chat_id);
     bool resume(int64_t chat_id);
-    bool mute(int64_t chat_id);
-    bool unmute(int64_t chat_id);
     bool set_volume(int64_t chat_id, int volume); // 0-200%
 
     // Callbacks

@@ -154,39 +154,6 @@ void TDLibClient::send_request(const nlohmann::json& request, ResponseCallback o
     }
 }
 
-nlohmann::json TDLibClient::execute_sync(const nlohmann::json& request, double timeout_sec) {
-    std::string req_id = std::to_string(current_request_id_++);
-    nlohmann::json req = request;
-    req["@extra"] = req_id;
-
-    auto prom = std::make_shared<std::promise<nlohmann::json>>();
-    std::future<nlohmann::json> fut = prom->get_future();
-
-    {
-        std::lock_guard<std::mutex> lock(callback_mutex_);
-        sync_promises_[req_id] = prom;
-    }
-
-    auto& td = get_tdlib();
-    if (td.is_loaded() && client_id_ > 0) {
-        std::string serialized = req.dump();
-        td.send(client_id_, serialized.c_str());
-    } else {
-        return {{"@type", "ok"}};
-    }
-
-    if (fut.wait_for(std::chrono::duration<double>(timeout_sec)) == std::future_status::ready) {
-        return fut.get();
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(callback_mutex_);
-        sync_promises_.erase(req_id);
-    }
-
-    return {{"@type", "error"}, {"code", 408}, {"message", "Request Timeout"}};
-}
-
 void TDLibClient::send_message(int64_t chat_id,
                               const std::string& text,
                               int64_t reply_to_message_id,
@@ -224,25 +191,12 @@ void TDLibClient::add_update_listener(const std::string& update_type, UpdateCall
     update_listeners_[update_type].push_back(std::move(callback));
 }
 
-void TDLibClient::set_raw_update_listener(UpdateCallback callback) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
-    raw_update_listener_ = std::move(callback);
-}
-
 AuthState TDLibClient::auth_state() const noexcept {
     return auth_state_.load();
 }
 
-bool TDLibClient::is_ready() const noexcept {
-    return auth_state_.load() == AuthState::Ready;
-}
-
 int TDLibClient::client_id() const noexcept {
     return client_id_;
-}
-
-int64_t TDLibClient::my_id() const noexcept {
-    return my_id_;
 }
 
 void TDLibClient::receiver_loop() {
@@ -266,7 +220,6 @@ void TDLibClient::receiver_loop() {
             if (j.contains("@extra")) {
                 std::string extra = j["@extra"].get<std::string>();
                 ResponseCallback cb = nullptr;
-                std::shared_ptr<std::promise<nlohmann::json>> prom = nullptr;
 
                 {
                     std::lock_guard<std::mutex> lock(callback_mutex_);
@@ -275,16 +228,9 @@ void TDLibClient::receiver_loop() {
                         cb = std::move(it_cb->second);
                         pending_callbacks_.erase(it_cb);
                     }
-
-                    auto it_prom = sync_promises_.find(extra);
-                    if (it_prom != sync_promises_.end()) {
-                        prom = it_prom->second;
-                        sync_promises_.erase(it_prom);
-                    }
                 }
 
                 if (cb) cb(j);
-                if (prom) prom->set_value(j);
             }
 
             // 2. Process updates
@@ -305,24 +251,20 @@ void TDLibClient::process_update(const nlohmann::json& update) {
         }
     } else if (type == "updateUser") {
         if (update.contains("user") && update["user"].value("is_self", false)) {
-            my_id_ = update["user"].value("id", int64_t{0});
-            ANONX_LOG_INFO("TDLib", "Identified self ID: ", my_id_);
+            int64_t self_id = update["user"].value("id", int64_t{0});
+            ANONX_LOG_INFO("TDLib", "Identified self ID: ", self_id);
         }
     }
 
-    // Trigger raw listener if present
-    UpdateCallback raw_cb;
     std::vector<UpdateCallback> type_cbs;
     {
         std::lock_guard<std::mutex> lock(callback_mutex_);
-        if (raw_update_listener_) raw_cb = raw_update_listener_;
         auto it = update_listeners_.find(type);
         if (it != update_listeners_.end()) {
             type_cbs = it->second;
         }
     }
 
-    if (raw_cb) raw_cb(update);
     for (const auto& cb : type_cbs) {
         cb(update);
     }

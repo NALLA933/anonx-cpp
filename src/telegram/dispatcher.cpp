@@ -5,6 +5,8 @@
 #include <anonx/core/logger.hpp>
 #include <chrono>
 #include <sstream>
+#include <string_view>
+
 
 namespace anonx::telegram {
 
@@ -16,19 +18,24 @@ int64_t get_current_epoch_ms() {
     ).count();
 }
 
-std::pair<std::string, std::string> parse_command_and_args(const std::string& text) {
-    if (text.empty() || text[0] != '/') return {"", ""};
+std::pair<std::string_view, std::string_view> parse_command_and_args(std::string_view text) noexcept {
+    if (text.empty() || text.front() != '/') return {"", ""};
+    text.remove_prefix(1); // remove '/'
     size_t space_pos = text.find(' ');
-    std::string cmd = text.substr(1, space_pos - 1);
-    // Strip bot username if tagged (e.g. /play@MyBot)
+    std::string_view cmd = (space_pos != std::string_view::npos) ? text.substr(0, space_pos) : text;
     size_t at_pos = cmd.find('@');
-    if (at_pos != std::string::npos) {
+    if (at_pos != std::string_view::npos) {
         cmd = cmd.substr(0, at_pos);
     }
-    std::string args;
-    if (space_pos != std::string::npos) {
+    std::string_view args;
+    if (space_pos != std::string_view::npos) {
         args = text.substr(space_pos + 1);
-        while (!args.empty() && args.front() == ' ') args.erase(args.begin());
+        size_t first_non_space = args.find_first_not_of(' ');
+        if (first_non_space != std::string_view::npos) {
+            args.remove_prefix(first_non_space);
+        } else {
+            args = {};
+        }
     }
     return {cmd, args};
 }
@@ -46,6 +53,8 @@ void CommandDispatcher::init(const core::BotConfig& config, std::shared_ptr<TDLi
     config_ = config;
     client_ = client;
     start_time_ = get_current_epoch_ms();
+    thread_pool_ = std::make_unique<core::ThreadPool>();
+    rate_limiter_ = std::make_unique<core::RateLimiter>(3.0, 6.0, 64);
 
     // Register update listener
     if (client_) {
@@ -56,13 +65,20 @@ void CommandDispatcher::init(const core::BotConfig& config, std::shared_ptr<TDLi
         });
     }
 
-    // Hook track end callback to auto-play next track in queue
+    // Hook track end callback to auto-play next track in queue asynchronously
     audio::AudioStreamer::instance().set_on_track_ended([this](int64_t chat_id, const database::TrackItem& track) {
         ANONX_LOG_INFO("Dispatcher", "Auto-advancing track in chat: ", chat_id, " (finished: ", track.title, ")");
-        this->play_next_in_queue(chat_id);
+        if (this->thread_pool_) {
+            this->thread_pool_->enqueue([this, chat_id]() {
+                this->play_next_in_queue(chat_id);
+            });
+        } else {
+            this->play_next_in_queue(chat_id);
+        }
     });
 
-    ANONX_LOG_INFO("Dispatcher", "Command Dispatcher initialized with core audio loop.");
+    ANONX_LOG_INFO("Dispatcher", "Command Dispatcher initialized with async ThreadPool (workers: ",
+                   thread_pool_->worker_count(), ") and RateLimiter.");
 }
 
 void CommandDispatcher::dispatch_message(const nlohmann::json& message) {
@@ -94,8 +110,32 @@ void CommandDispatcher::dispatch_message(const nlohmann::json& message) {
     auto [cmd, args] = parse_command_and_args(text);
     if (cmd.empty()) return;
 
+    // Concurrency Protection: Token-bucket rate limiting per entity (user / chat)
+    int64_t rate_entity = (sender_user_id != 0) ? sender_user_id : chat_id;
+    if (rate_limiter_ && !rate_limiter_->allow(rate_entity)) {
+        ANONX_LOG_WARN("Dispatcher", "Rate limit exceeded for entity: ", rate_entity, " in chat: ", chat_id);
+        return;
+    }
+
     ANONX_LOG_INFO("Dispatcher", "Command received: /", cmd, " from user ", sender_user_id, " in chat ", chat_id);
 
+    // Offload command execution off the TDLib receiver thread with backpressure protection
+    if (thread_pool_) {
+        try {
+            thread_pool_->enqueue([this, cmd_str = std::string(cmd), args_str = std::string(args),
+                                   chat_id, sender_user_id, msg_id]() {
+                this->execute_command(cmd_str, args_str, chat_id, sender_user_id, msg_id);
+            });
+        } catch (const std::exception& ex) {
+            ANONX_LOG_WARN("Dispatcher", "Backpressure triggered: thread pool saturated, shedding command: ", ex.what());
+        }
+    } else {
+        execute_command(std::string(cmd), std::string(args), chat_id, sender_user_id, msg_id);
+    }
+}
+
+void CommandDispatcher::execute_command(const std::string& cmd, const std::string& args,
+                                        int64_t chat_id, int64_t sender_user_id, int64_t msg_id) {
     if (cmd == "play" || cmd == "p") {
         handle_play(chat_id, sender_user_id, msg_id, args);
     } else if (cmd == "skip" || cmd == "next") {
@@ -247,13 +287,19 @@ void CommandDispatcher::handle_ping(int64_t chat_id, int64_t msg_id) {
     int mins = static_cast<int>((uptime_sec % 3600) / 60);
     int secs = static_cast<int>(uptime_sec % 60);
 
+    size_t pending = thread_pool_ ? thread_pool_->pending_tasks() : 0;
+    uint64_t completed = thread_pool_ ? thread_pool_->completed_tasks() : 0;
+    size_t workers = thread_pool_ ? thread_pool_->worker_count() : 0;
+
     std::ostringstream ss;
     ss << "🏓 **Pong!**\n"
        << "⏱️ **Uptime:** " << hours << "h " << mins << "m " << secs << "s\n"
        << "🚀 **Engine:** AnonX C++20 High-Performance Core\n"
-       << "⚡ **Memory Efficient:** 1 vCPU / 1GB VPS Certified";
+       << "⚡ **ThreadPool:** " << workers << " workers | " << completed << " completed | " << pending << " queued\n"
+       << "🛡️ **RateLimiting:** Active (Token-Bucket Striped)";
+    std::string ping_msg = ss.str();
 
-    client_->send_message(chat_id, ss.str(), msg_id);
+    client_->send_message(chat_id, ping_msg, msg_id);
 }
 
 void CommandDispatcher::handle_help(int64_t chat_id, int64_t msg_id) {

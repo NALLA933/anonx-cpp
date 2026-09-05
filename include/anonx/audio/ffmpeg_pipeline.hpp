@@ -16,11 +16,6 @@ constexpr size_t PCM_FRAME_DURATION_MS = 20;
 constexpr size_t SAMPLES_PER_FRAME = (PCM_SAMPLE_RATE * PCM_FRAME_DURATION_MS) / 1000; // 960
 constexpr size_t PCM_FRAME_BYTES = SAMPLES_PER_FRAME * PCM_CHANNELS * sizeof(int16_t); // 3840 bytes
 
-struct AudioFrame {
-    std::vector<uint8_t> data;
-    int64_t timestamp_ms{0};
-};
-
 class FFmpegPipeline {
 public:
     using FrameCallback = std::function<void(const uint8_t* pcm_data, size_t size_bytes)>;
@@ -43,8 +38,9 @@ public:
     [[nodiscard]] bool is_running() const noexcept;
     [[nodiscard]] bool is_paused() const noexcept;
 
-    // Helper: Resolves YouTube / media URL to direct audio stream using yt-dlp
+    // Helper: Resolves YouTube / media URL to direct audio stream using yt-dlp (with TTL cache)
     static std::string resolve_stream_url(const std::string& input_query);
+    static void clear_stream_url_cache();
 
 private:
     void reader_thread_loop(const std::string& source_uri,

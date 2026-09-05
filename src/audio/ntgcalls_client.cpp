@@ -22,8 +22,6 @@ typedef int (*fn_ntg_set_stream_sources)(uintptr_t, int64_t, ntg_stream_mode_enu
 typedef int (*fn_ntg_send_external_frame)(uintptr_t, int64_t, ntg_stream_device_enum, uint8_t*, int, ntg_frame_data_struct, ntg_async_struct);
 typedef int (*fn_ntg_pause)(uintptr_t, int64_t, ntg_async_struct);
 typedef int (*fn_ntg_resume)(uintptr_t, int64_t, ntg_async_struct);
-typedef int (*fn_ntg_mute)(uintptr_t, int64_t, ntg_async_struct);
-typedef int (*fn_ntg_unmute)(uintptr_t, int64_t, ntg_async_struct);
 typedef int (*fn_ntg_stop)(uintptr_t, int64_t, ntg_async_struct);
 typedef int (*fn_ntg_on_stream_end)(uintptr_t, ntg_stream_callback, void*);
 typedef int (*fn_ntg_on_connection_change)(uintptr_t, ntg_connection_callback, void*);
@@ -38,8 +36,6 @@ struct DynamicNtgCalls {
     fn_ntg_send_external_frame send_external_frame{nullptr};
     fn_ntg_pause pause{nullptr};
     fn_ntg_resume resume{nullptr};
-    fn_ntg_mute mute{nullptr};
-    fn_ntg_unmute unmute{nullptr};
     fn_ntg_stop stop{nullptr};
     fn_ntg_on_stream_end on_stream_end{nullptr};
     fn_ntg_on_connection_change on_connection_change{nullptr};
@@ -81,8 +77,6 @@ struct DynamicNtgCalls {
         send_external_frame = reinterpret_cast<fn_ntg_send_external_frame>(dlsym(handle, "ntg_send_external_frame"));
         pause = reinterpret_cast<fn_ntg_pause>(dlsym(handle, "ntg_pause"));
         resume = reinterpret_cast<fn_ntg_resume>(dlsym(handle, "ntg_resume"));
-        mute = reinterpret_cast<fn_ntg_mute>(dlsym(handle, "ntg_mute"));
-        unmute = reinterpret_cast<fn_ntg_unmute>(dlsym(handle, "ntg_unmute"));
         stop = reinterpret_cast<fn_ntg_stop>(dlsym(handle, "ntg_stop"));
         on_stream_end = reinterpret_cast<fn_ntg_on_stream_end>(dlsym(handle, "ntg_on_stream_end"));
         on_connection_change = reinterpret_cast<fn_ntg_on_connection_change>(dlsym(handle, "ntg_on_connection_change"));
@@ -282,34 +276,6 @@ bool NTgCallsClient::resume(int64_t chat_id) {
         char* msg = nullptr;
         auto async = make_async_struct(prom, err, msg);
         pimpl_->lib.resume(pimpl_->instance_ptr, chat_id, async);
-    }
-    return true;
-}
-
-bool NTgCallsClient::mute(int64_t chat_id) {
-    std::lock_guard<std::mutex> lock(pimpl_->mutex);
-    if (!pimpl_->active_chats.count(chat_id)) return false;
-
-    if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0 && pimpl_->lib.mute) {
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
-        pimpl_->lib.mute(pimpl_->instance_ptr, chat_id, async);
-    }
-    return true;
-}
-
-bool NTgCallsClient::unmute(int64_t chat_id) {
-    std::lock_guard<std::mutex> lock(pimpl_->mutex);
-    if (!pimpl_->active_chats.count(chat_id)) return false;
-
-    if (pimpl_->lib.is_loaded() && pimpl_->instance_ptr != 0 && pimpl_->lib.unmute) {
-        std::promise<int> prom;
-        int err = 0;
-        char* msg = nullptr;
-        auto async = make_async_struct(prom, err, msg);
-        pimpl_->lib.unmute(pimpl_->instance_ptr, chat_id, async);
     }
     return true;
 }

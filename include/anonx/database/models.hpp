@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
 #include <nlohmann/json.hpp>
 
 namespace anonx::database {
@@ -22,28 +21,25 @@ struct TrackItem {
     static TrackItem from_json(const nlohmann::json& j);
 };
 
-struct ChatSettings {
-    int64_t chat_id{0};
-    int64_t channel_id{0};
-    int32_t volume{100};
-    bool is_muted{false};
-    bool is_paused{false};
-    bool loop_queue{false};
-    std::string language{"en"};
-    bool admin_only{false};
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
+    TrackItem,
+    id,
+    title,
+    url,
+    file_path,
+    stream_type,
+    duration_seconds,
+    requester_id,
+    requester_name,
+    added_timestamp
+)
 
-    [[nodiscard]] nlohmann::json to_json() const;
-    static ChatSettings from_json(const nlohmann::json& j);
-};
+inline nlohmann::json TrackItem::to_json() const {
+    return *this;
+}
 
-struct SudoEntry {
-    int64_t user_id{0};
-    std::string username;
-    int64_t added_by{0};
-    int64_t added_at{0};
-
-    [[nodiscard]] nlohmann::json to_json() const;
-    static SudoEntry from_json(const nlohmann::json& j);
-};
+inline TrackItem TrackItem::from_json(const nlohmann::json& j) {
+    return j.get<TrackItem>();
+}
 
 } // namespace anonx::database

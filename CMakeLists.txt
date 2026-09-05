@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.22)
 
 project(
     anonx_cpp
@@ -38,10 +38,26 @@ endif()
 # Dependencies Discovery (via vcpkg or system)
 # ------------------------------------------------------------------------------
 find_package(Threads REQUIRED)
+
 find_package(fmt CONFIG QUIET)
+if(NOT TARGET fmt::fmt)
+    find_library(FMT_LIB NAMES fmt libfmt)
+    if(FMT_LIB)
+        add_library(fmt::fmt UNKNOWN IMPORTED)
+        set_target_properties(fmt::fmt PROPERTIES IMPORTED_LOCATION "${FMT_LIB}")
+    endif()
+endif()
+
 find_package(spdlog CONFIG QUIET)
+if(NOT TARGET spdlog::spdlog)
+    find_library(SPDLOG_LIB NAMES spdlog libspdlog)
+    if(SPDLOG_LIB)
+        add_library(spdlog::spdlog UNKNOWN IMPORTED)
+        set_target_properties(spdlog::spdlog PROPERTIES IMPORTED_LOCATION "${SPDLOG_LIB}")
+    endif()
+endif()
+
 find_package(nlohmann_json 3.10 CONFIG QUIET)
-find_package(OpenSSL QUIET)
 
 # Fallback for nlohmann_json if not found via vcpkg
 if(NOT nlohmann_json_FOUND)
@@ -53,10 +69,6 @@ if(NOT nlohmann_json_FOUND)
     )
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
-
-# MongoDB C++ Driver
-find_package(mongocxx CONFIG QUIET)
-find_package(bsoncxx CONFIG QUIET)
 
 # TDLib (libtdjson) Discovery
 find_package(Td QUIET)
@@ -88,6 +100,8 @@ find_package(ntgcalls QUIET)
 add_library(anonx_core STATIC
     src/core/config.cpp
     src/core/logger.cpp
+    src/core/thread_pool.cpp
+    src/core/rate_limiter.cpp
 )
 add_library(anonx::core ALIAS anonx_core)
 target_include_directories(anonx_core PUBLIC
@@ -116,8 +130,6 @@ target_include_directories(anonx_database PUBLIC
 )
 target_link_libraries(anonx_database PUBLIC
     anonx::core
-    $<$<TARGET_EXISTS:mongo::mongocxx_shared>:mongo::mongocxx_shared>
-    $<$<TARGET_EXISTS:mongo::bsoncxx_shared>:mongo::bsoncxx_shared>
 )
 set_project_warnings(anonx_database)
 
@@ -136,8 +148,6 @@ target_include_directories(anonx_audio PUBLIC
 )
 target_link_libraries(anonx_audio PUBLIC
     anonx::core
-    $<$<TARGET_EXISTS:OpenSSL::SSL>:OpenSSL::SSL>
-    $<$<TARGET_EXISTS:OpenSSL::Crypto>:OpenSSL::Crypto>
     $<$<TARGET_EXISTS:ntgcalls>:ntgcalls>
     ${CMAKE_DL_LIBS}
 )
@@ -173,6 +183,8 @@ target_link_libraries(anonx_bot PRIVATE
     anonx::database
     anonx::audio
     anonx::telegram
+    $<$<TARGET_EXISTS:fmt::fmt>:fmt::fmt>
+    $<$<TARGET_EXISTS:spdlog::spdlog>:spdlog::spdlog>
 )
 set_project_warnings(anonx_bot)
 

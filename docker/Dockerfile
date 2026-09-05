@@ -18,8 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tar \
     pkg-config \
     ca-certificates \
-    libssl-dev \
-    zlib1g-dev \
     libopus-dev \
     && rm -rf /var/lib/apt/lists/*
 

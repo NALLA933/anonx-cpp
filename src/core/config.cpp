@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string_view>
 
 namespace anonx::core {
@@ -21,17 +22,12 @@ std::optional<std::string> get_env_var(const char* name) {
 
 std::vector<std::string> ConfigLoader::split_string(std::string_view s, char delimiter) {
     std::vector<std::string> tokens;
-    size_t start = 0;
-    while (start < s.size()) {
-        size_t end = s.find(delimiter, start);
-        if (end == std::string_view::npos) {
-            end = s.size();
+    std::stringstream ss{std::string(s)};
+    std::string item;
+    while (std::getline(ss, item, delimiter)) {
+        if (!item.empty()) {
+            tokens.push_back(std::move(item));
         }
-        std::string_view token = s.substr(start, end - start);
-        if (!token.empty()) {
-            tokens.emplace_back(token);
-        }
-        start = end + 1;
     }
     return tokens;
 }
@@ -60,9 +56,6 @@ BotConfig ConfigLoader::load(const std::string& config_path) {
 
             if (j.contains("mongo_uri")) config.mongo_uri = j["mongo_uri"].get<std::string>();
             if (j.contains("db_name")) config.db_name = j["db_name"].get<std::string>();
-            if (j.contains("log_group_id")) config.log_group_id = j["log_group_id"].get<int64_t>();
-            if (j.contains("audio_quality")) config.audio_quality = j["audio_quality"].get<std::string>();
-            if (j.contains("duration_limit_sec")) config.duration_limit_sec = j["duration_limit_sec"].get<int32_t>();
             if (j.contains("log_level")) config.log_level = j["log_level"].get<std::string>();
             if (j.contains("data_dir")) config.data_dir = j["data_dir"].get<std::string>();
             if (j.contains("downloads_dir")) config.downloads_dir = j["downloads_dir"].get<std::string>();
@@ -89,7 +82,7 @@ void ConfigLoader::apply_env_overrides(BotConfig& config) {
     }
     if (auto val = get_env_var("API_HASH")) config.api_hash = *val;
     if (auto val = get_env_var("STRING_SESSION")) config.string_session = *val;
-    else if (auto val = get_env_var("SESSION_STRING")) config.string_session = *val;
+    else if (auto val2 = get_env_var("SESSION_STRING")) config.string_session = *val2;
 
     if (auto val = get_env_var("OWNER_ID")) {
         try { config.owner_id = std::stoll(*val); } catch (...) {}
@@ -105,16 +98,10 @@ void ConfigLoader::apply_env_overrides(BotConfig& config) {
     }
 
     if (auto val = get_env_var("MONGO_URI")) config.mongo_uri = *val;
-    else if (auto val = get_env_var("MONGO_DB_URI")) config.mongo_uri = *val;
+    else if (auto val2 = get_env_var("MONGO_DB_URI")) config.mongo_uri = *val2;
 
     if (auto val = get_env_var("DB_NAME")) config.db_name = *val;
-
-    if (auto val = get_env_var("LOG_GROUP_ID")) {
-        try { config.log_group_id = std::stoll(*val); } catch (...) {}
-    }
-
     if (auto val = get_env_var("LOG_LEVEL")) config.log_level = *val;
-    if (auto val = get_env_var("AUDIO_QUALITY")) config.audio_quality = *val;
     if (auto val = get_env_var("AUTO_UPDATE_YTDLP")) {
         config.auto_update_ytdlp = (*val == "1" || *val == "true" || *val == "TRUE");
     }
